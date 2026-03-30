@@ -1,0 +1,141 @@
+---
+title: "Construct analysis file"
+author: Casey Breen
+---
+
+## Prepare analysis file 
+
+
+Summary: Construct individual-level analysis file 
+
+```{r}
+library(here)
+source(here("fertility_impacts", "code", "helpers.R"))
+```
+
+## Read in data 
+
+```{r}
+# Birth recodes
+dhs_birth_recode <- read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA"))
+
+## Individual-level recodes
+dhs_women_recode <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA"))
+
+# Cluster to admin-2 xwalk and pick first 
+xwalk <- read_csv(here("fertility_impacts", "data", "xwalk_ng.csv")) %>%
+  filter(v000 == "NG7") %>% 
+  janitor::clean_names() %>% 
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup() 
+
+# Cluster-level coverage
+coverage_data_cluster <- read_csv(here("fertility_impacts", "data", "coverage_indicators_allyears.csv")) %>%
+  filter(source == "gsma", dhsyear %in% c(2018), dhscc == "NG") %>%
+  mutate(v000 =  "NG7")
+
+## Admin2-level coverage 
+coverage_data_admin2 <- read_csv(here("fertility_impacts", "data", "ng_adm2_coverage.csv")) %>% 
+  janitor::clean_names() %>% 
+  select(-x1) %>% 
+  pivot_longer(-gid_2) %>% 
+  mutate(name = substring(name, 15, 18)) %>% 
+  rename(area_share_3g_admin2 = value, year = name) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  mutate(v000 = "NG7") 
+
+## individual-level covars 
+timevarying_covars <-  read_csv(here("fertility_impacts", "data", "time_variant_covariates_ng.csv"))
+```
+
+
+## create analysis file 
+
+```{r}
+# Expand person-years
+expanded_data <- dhs_women_recode %>%
+select(caseid,# caseid for individual women 
+       v000,  # country code and phase 
+       v001,  # cluster 
+       v005,  # survey weights 
+       v012,  # Age
+       v212,  # Age at first birth
+       v511,  # Age at first marriage
+       v190,  # Household wealth index
+       v025,  # Urban/rural
+       v714,  # Employment status
+       v106,  # Education
+       v130,  # Religion
+       v169a, # own mobile phone 
+       v613,  # ideal number of children 
+       v158,  # Frequency of listening to the radio
+       v159,  # Frequency of watching television 
+       v301,  # Birth control 
+       v313,  # Birth control (none, traditional, modern)
+       v743a, # Empowerment var 
+       v743b, # Empowerment var 
+       v743c, # Empowerment var 
+       v743d, # Empowerment var 
+       v743e, # Empowerment var 
+       v743f, # Empowerment var 
+       v739,  # who decides about partners earnings 
+       v104) %>%  # Frequency of watching television
+  crossing(year = 1900:2018)
+
+# Reshape births to long
+birth_long <- dhs_birth_recode %>%
+  pivot_longer(starts_with("b3"), names_to = "birth_order", values_to = "b3") %>%
+  filter(!is.na(b3)) %>%
+  mutate(year = 1900 + floor((b3 - 1) / 12), 
+         birth = 1, 
+        infant_death = as.integer(b5 == 0 & b7 < 12)) %>%
+  select(v000, caseid, year, birth, infant_death) 
+
+# Merge and clean
+birth_panel <- expanded_data %>%
+  left_join(birth_long, by = c("v000", "caseid", "year")) %>%
+  mutate(birth = replace_na(birth, 0)) %>%
+  left_join(coverage_data_cluster, by = join_by(v000, v001, year)) %>%
+  left_join(xwalk, by = c("v000", "v001")) %>%
+  left_join(coverage_data_admin2, by = c("v000", "gid_2", "year")) %>% 
+  left_join(timevarying_covars, by = c("v001", "year")) %>% 
+  arrange(caseid, year) %>%
+  group_by(caseid) %>%
+  mutate(num_prev_children = cumsum(lag(birth, default = 0))) %>%
+  ungroup() 
+
+## Children prior to 2010
+prev_children_pre_treatment <- birth_panel %>%
+  filter(year == 2014) %>%
+  group_by(caseid) %>%
+  slice_max(order_by = year, with_ties = FALSE) %>%
+  select(caseid, num_prev_children_pre_window = num_prev_children)
+
+## Children after 2010 
+birth_panel <- birth_panel %>%
+  left_join(prev_children_pre_treatment, by = "caseid") %>% 
+  filter(v000 == "NG7" & year %in% 2013:2018) %>% 
+  mutate(sum_births_in_window = num_prev_children - num_prev_children_pre_window) 
+
+## Only keep one record 
+birth_panel <- birth_panel %>% 
+  group_by(caseid, year) %>%
+  slice(1) %>%  # keep the first row for each woman-year
+  ungroup()
+
+## clean names 
+birth_panel <- birth_panel %>% 
+  janitor::clean_names()
+```
+
+
+## Write out 
+
+```{r}
+write_csv(birth_panel, here("fertility_impacts", "data", "birth_panel_2013_2018.csv"))
+```
+
+
+
+

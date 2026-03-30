@@ -1,0 +1,139 @@
+---
+title: "Individual Predictions"
+author: Casey Breen
+---
+
+Summary: Calculate individual-level analyses 
+
+
+```{r}
+## library packages 
+library(here)
+source(here("code", "helpers.R"))
+
+## birth panel 
+birth_panel <- read_csv(here("data", "birth_panel.csv"))
+```
+
+```{r}
+## filter
+birth_panel_filtered <- birth_panel %>%
+  filter(year == 2010, pop_share_covered_3g == 0) %>%
+  distinct(v001) %>%
+  inner_join(birth_panel, by = "v001") 
+
+birth_panel_filtered <- birth_panel_filtered %>% 
+  mutate(islam = case_when(
+    v130 == 3 ~ 1,
+    TRUE ~ 0))
+
+birth_panel_filtered <- birth_panel_filtered %>%
+arrange(v001, year) %>%
+  group_by(v001) %>%
+  mutate(
+    pop_share_covered_3g_lag1 = lag(pop_share_covered_3g, n = 1),
+    pop_share_covered_2g_lag1 = lag(pop_share_covered_2g, n = 1)
+  ) %>%
+  ungroup()
+
+## restrict to people who lived in same house during window 
+birth_panel_filtered <- birth_panel_filtered %>% 
+  filter(year %in% 2010:2018) %>% 
+    filter(v104 > 5)
+
+
+birth_panel_mortality <- birth_panel %>% 
+  filter(birth == 1)
+
+birth_panel_mortality %>% 
+  #filter(year > 2010) %>% 
+  summarize(mean(infant_death))
+```
+
+
+
+```{r}
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe1 <- feols(
+  infant_death ~ pop_share_covered_3g | v012,
+  data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe2 <- feols(
+  infant_death ~ pop_share_covered_3g + pop_share_covered_2g + num_prev_children_pre_window +  sum_births_in_window  | v001 + year + v012,
+  data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe3 <- feols(
+  infant_death ~ pop_share_covered_3g + pop_share_covered_2g + num_prev_children_pre_window +  sum_births_in_window  | v012 + v001 + year + caseid,
+  data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+```
+
+
+```{r}
+## clean up coefficients 
+coef_df <- broom::tidy(lpm_model_individual_fe1) %>%
+  bind_rows(broom::tidy(lpm_model_individual_fe2)) %>%
+  bind_rows(broom::tidy(lpm_model_individual_fe3)) %>%
+  filter(term == "pop_share_covered_3g") %>%
+  mutate(
+    model = c("No Controls", "Controls", "Controls + Mother FE"),
+    method = "Modern", # or add varying labels if needed
+    age_cohort = model # use model label as y-axis for now
+  )
+
+coef_df <- coef_df %>%
+  mutate(
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+coef_df <- coef_df %>%
+  mutate(age_cohort = factor(age_cohort, levels = c("Controls + Mother FE", "Controls", "No Controls")))
+
+# Plot
+mortality_effect_plot <- coef_df %>%
+  ggplot(aes(x = estimate, y = age_cohort, color = method, shape = method)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(xmin = CI_90_low, xmax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5)) +
+  geom_pointrange(aes(xmin = CI_95_low, xmax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8) +
+  scale_x_continuous(labels = function(x) x * 100) + 
+  scale_color_manual(values = c("Modern" = "darkred")) +
+  scale_shape_manual(values = c("Modern" = 21)) +
+  labs(
+x = "Infant Mortality Probability \n (Percentage Point Change)", 
+y = "",
+    color = "Method",
+    shape = "Method"
+  ) + 
+  cowplot::theme_cowplot() + 
+  theme_demography() + 
+  theme(legend.position = "none",
+        axis.text.y  = element_text(face = "bold", colour = "black"))
+
+# Save plot
+ggsave(plot = mortality_effect_plot, filename = here("figures", "effect_infact_mortality.png"),
+       bg = "white", height = 4, width = 7)
+
+mortality_effect_plot
+```
+
+
+
+
+
+
+
+
+

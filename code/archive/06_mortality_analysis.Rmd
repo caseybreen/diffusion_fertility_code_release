@@ -1,0 +1,222 @@
+---
+title: "Individual Predictions"
+author: Casey Breen
+---
+
+Summary: calculate individual-level analyses 
+
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+library(janitor)
+library(haven)
+library(modelsummary)
+
+# Birth recode (if needed later)
+birth_data_2018 <- read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA"))
+individual_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA"))
+
+# Covariates
+ng_covariates <- read_csv(here("impacts_demographic", "data", "1_covariables_0919_NGA.csv")) %>%
+  janitor::clean_names() %>% 
+  filter(dhscc == "NG", collection_year == 2018)
+
+# Cluster to admin-2 xwalk and pick first 
+xwalk <- read_csv(here("impacts_demographic", "data", "xwalk_ng.csv")) %>%
+  janitor::clean_names() %>% 
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup() %>% 
+  filter(v000 == "NG7")
+
+# Cluster-level coverage
+coverage_data <- read_csv(here("mobile_coverages", "out", "coverage_indicators_allyears.csv")) %>%
+  filter(source == "gsma", dhsyear %in% c(2018), dhscc == "NG") %>%
+  mutate(v000 =  "NG7")
+
+## Admin2-level coverage 
+coverage_data_admin2 <- read_csv(here("impacts_demographic", "data","ng_adm2_coverage.csv")) %>% 
+  janitor::clean_names()
+
+## coverage data 
+coverage_data_admin2 <- coverage_data_admin2 %>% 
+  select(-x1) %>% 
+  pivot_longer(-gid_2) %>% 
+  mutate(name = substring(name, 15, 18)) %>% 
+  rename(area_share_3g_admin2 = value, year = name) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  mutate(v000 = "NG7") 
+```
+
+
+```{r}
+# Expand person-years
+expanded_data <- individual_data_2018 %>%
+select(caseid, 
+       v000,  # DHS survey 
+       v001,  # Cluster
+       v012,  # Age
+       v169a, # Mobile phone ownership
+       v212,  # Age at first birth
+       v511,  # Age at first marriage
+       v190,  # Household wealth index
+       v025,  # Urban/rural
+       v714,  # Employment status
+       v106,  # Education
+       v130,  # Religion
+       v613,  # ideal number of children 
+       v158,  # Frequency of listening to the radio
+       v159,  # Frequency of watching television 
+       v313,   # Birth control (none, traditional, modern)
+       ) %>%  # Frequency of watching television
+  crossing(year = 1990:2018)
+
+# Reshape births to long
+# Tag birth year and infant death
+birth_long <- birth_data_2018 %>%
+  filter(!is.na(b3)) %>%
+  mutate(
+    year = 1900 + floor((b3 - 1) / 12),
+    birth = 1,
+    infant_death = as.integer(b5 == 0 & b7 < 12)
+  ) %>%
+  select(v000, caseid, year, birth, infant_death) %>%
+  group_by(v000, caseid, year) %>%
+  summarise(
+    birth = sum(birth),
+    infant_death = sum(infant_death),
+    .groups = "drop"
+  ) %>% arrange(caseid, year) %>%
+  group_by(caseid) %>%
+  mutate(num_prev_children = cumsum(lag(birth, default = 0))) %>%
+  ungroup() 
+
+
+birth_panel <- expanded_data %>%
+  left_join(birth_long, by = c("v000", "caseid", "year")) %>%
+  mutate(
+    birth = replace_na(birth, 0),
+    infant_death = replace_na(infant_death, 0)
+  )
+
+birth_panel <- birth_panel %>% 
+  group_by(caseid, year) %>%
+  slice(1) %>%  # keep the first row for each woman-year
+  ungroup() %>% 
+   left_join(coverage_data, by = join_by(v000, v001, year)) %>%
+  left_join(xwalk, by = c("v000", "v001")) %>%
+  left_join(coverage_data_admin2, by = c("v000", "gid_2", "year")) %>% 
+  left_join(ng_covariates, by = "v001") 
+```
+
+
+```{r}
+birth_panel_mortality <- birth_panel %>% 
+  filter(birth == 1)
+
+birth_panel_mortality %>% 
+  #filter(year > 2010) %>% 
+  summarize(mean(infant_death))
+
+```
+
+
+```{r}
+imr <- birth_data_2018 %>%
+  filter(!is.na(b3)) %>%
+  summarise(
+    total_births = n(),
+    infant_deaths = sum(b5 == 0 & b7 < 12, na.rm = TRUE),
+    imr = infant_deaths / total_births * 1000
+  )
+```
+
+```{r}
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe1 <- feols(
+  infant_death ~ pop_share_covered_3G | v012,
+  data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe2 <- feols(
+  infant_death ~ pop_share_covered_3G + pop_share_covered_2G  | v001 + year + v012,
+  data = birth_panel_mortality %>% filter(year %in% 2013:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe3 <- feols(
+  infant_death ~ pop_share_covered_3G + pop_share_covered_2G | v012 + v001 + year + caseid,
+  data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
+  cluster = ~v001
+)
+
+
+```
+
+
+```{r}
+# Compute confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)  # 90%
+interval2 <- -qnorm((1 - 0.95) / 2)  # 95%
+
+coef_df <- broom::tidy(lpm_model_individual_fe1) %>%
+  bind_rows(broom::tidy(lpm_model_individual_fe2)) %>%
+  bind_rows(broom::tidy(lpm_model_individual_fe3)) %>%
+  filter(term == "pop_share_covered_3G") %>%
+  mutate(
+    model = c("No controls", "Controls", "Controls + Mother FE"),
+    method = "Modern", # or add varying labels if needed
+    age_cohort = model # use model label as y-axis for now
+  )
+
+# Confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)
+interval2 <- -qnorm((1 - 0.95) / 2)
+
+coef_df <- coef_df %>%
+  mutate(
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+coef_df <- coef_df %>%
+  mutate(age_cohort = factor(age_cohort, levels = c("Controls + Mother FE", "Controls", "No controls")))
+
+# Plot
+effect_plot <- coef_df %>%
+  ggplot(aes(x = estimate, y = age_cohort, color = method, shape = method)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(xmin = CI_90_low, xmax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5)) +
+  geom_pointrange(aes(xmin = CI_95_low, xmax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_color_manual(values = c("Modern" = "darkred")) +
+  scale_shape_manual(values = c("Modern" = 21)) +
+  labs(
+    x = "Change in Infant Mortality Probability",
+    y = "",
+    color = "Method",
+    shape = "Method"
+  ) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none")
+
+# Save plot
+ggsave(plot = effect_plot, filename = here("impacts_demographic", "figures", "infant_mortality_3g_lpm.png"),
+       bg = "white", height = 4.5, width = 7)
+
+effect_plot
+```
+
+
+
+

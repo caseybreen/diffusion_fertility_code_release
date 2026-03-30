@@ -1,0 +1,81 @@
+---
+title: "Individual Predictions"
+author: Casey Breen
+---
+
+Summary: calculate individual-level analyses 
+
+```{r}
+## library packages 
+library(here)
+source(here("fertility_impacts", "code", "helpers.R"))
+
+## birth panel  
+birth_panel <- read_csv(here("fertility_impacts", "data", "birth_panel.csv"))
+```
+
+```{r}
+## filter
+birth_panel_filtered <- birth_panel %>%
+  filter(year == 2010, pop_share_covered_3g == 0) %>%
+  distinct(v001) %>%
+  inner_join(birth_panel, by = "v001") 
+
+birth_panel_filtered <- birth_panel_filtered %>% 
+  mutate(islam = case_when(
+    v130 == 3 ~ 1,
+    TRUE ~ 0))
+
+birth_panel_filtered <- birth_panel_filtered %>%
+arrange(v001, year) %>% 
+  group_by(v001) %>%
+  mutate(
+    pop_share_covered_3g_lag1 = lag(pop_share_covered_3g, n = 1),
+    pop_share_covered_2g_lag1 = lag(pop_share_covered_2g, n = 1)
+  ) %>%
+  ungroup()
+```
+
+
+
+
+
+```{r}
+## birth panel filtered 
+birth_panel_filtered <- birth_panel_filtered %>% 
+    filter(year %in% 2010:2018) %>% 
+    filter(v104 > 5)
+
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe1 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + 
+     sum_births_in_window +         ## parity controls  
+    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
+    fixef = c("caseid", "year"),
+  data = birth_panel_filtered,
+  cluster = ~v001
+) 
+
+# Model 2: Add 2G coverage, drop age FE to match original structure
+lpm_model_individual_fe2 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g  + 
+     sum_births_in_window +                                          ## parity controls  
+    nl_mean_wght_v_i + gdp_wght  + temp_wght_mean + rain_wght_mean,
+    fixef = c("caseid", "v001", "year"),
+  data = birth_panel_filtered %>% 
+    filter(num_prev_children_pre_window == 0),
+  cluster = ~v001
+)
+
+# Display table
+modelsummary(
+  list(
+    "Model 1" = lpm_model_individual_fe1,
+    "Model 2" = lpm_model_individual_fe2
+  ),
+  stars = TRUE,
+  output = "latex_tabular"
+)
+```
+
+

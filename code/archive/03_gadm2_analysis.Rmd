@@ -1,0 +1,418 @@
+---
+title: "Individual Predictions"
+author: Casey Breen
+---
+
+Summary: Admin 
+
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+library(janitor)
+library(haven)
+library(splines)
+
+# Birth recode (if needed later)
+birth_data_2018 <- read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA"))
+individual_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA"))
+
+# Covariates
+ng_covariates <- read_csv(here("impacts_demographic", "data", "1_covariables_0919_NGA.csv")) %>%
+  filter(dhscc == "NG", collection_year == 2018)
+
+# Cluster to admin-2 xwalk and pick first 
+xwalk <- read_csv("~/Downloads/xwalk_ng.csv") %>%
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup() %>% 
+  filter(v000 == "NG7")
+
+# Cluster-level coverage
+coverage_data <- read_csv(here("mobile_coverages", "out", "coverage_indicators_allyears.csv")) %>%
+  filter(source == "gsma", dhsyear %in% c(2018), dhscc == "NG") %>%
+  mutate(v000 =  "NG7")
+
+## crosswalk 
+xwalk <- read_csv("~/Downloads/xwalk_ng.csv") %>% 
+  janitor::clean_names() %>% 
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup()
+```
+
+
+```{r}
+## mobile coverage 
+coverage_data <- read_csv(here("mobile_coverages", "out", "coverage_indicators_allyears.csv")) %>% 
+    janitor::clean_names()
+
+coverage_data_admin2 <- read_csv("/Users/caseybreen/Downloads/ng_adm2_coverage.csv") %>% 
+  janitor::clean_names()
+
+## data coverage 
+coverage_data <- coverage_data %>% 
+  filter(source == "gsma") %>% 
+  filter(dhsyear %in% c(2013, 2018) & dhscc == "NG") %>% 
+  mutate(v000 = case_when(
+    dhsyear == 2013 ~ "NG6",
+    dhsyear == 2018 ~ "NG7"
+  ))
+
+coverage_data_admin2 <- coverage_data_admin2 %>% 
+  select(-x1) %>% 
+  pivot_longer(-gid_2) %>% 
+  mutate(name = substring(name, 15, 18)) %>% 
+  rename(area_share_3g_admin2 = value, year = name) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  mutate(v000 = "NG7") 
+
+coverage_data_admin2 <- coverage_data_admin2 %>% 
+  left_join(xwalk %>% filter(v000 == "NG7"), by = c("gid_2", "v000"))
+```
+
+
+```{r}
+# Expand person-years
+expanded_data <- individual_data_2018 %>%
+  select(caseid, 
+         v000,
+         v001,
+         v012, # Age
+         v190, # Household wealth index
+         v025, # Urban/rural
+         v714, # Employment status
+         v106, # Education
+         v130)  %>%  # Religion) %>%
+  crossing(year = 2010:2018)
+
+# Reshape births to long
+birth_long <- birth_data_2018 %>%
+  pivot_longer(starts_with("b3"), names_to = "birth_order", values_to = "b3") %>%
+  filter(!is.na(b3)) %>%
+  mutate(year = 1900 + floor((b3 - 1) / 12), birth = 1) %>%
+  select(v000, caseid, year, birth)
+
+# Merge and clean
+birth_panel <- expanded_data %>%
+  left_join(birth_long, by = c("v000", "caseid", "year")) %>%
+  mutate(birth = replace_na(birth, 0)) %>%
+  left_join(coverage_data, by = join_by(v000, v001, year)) %>%
+  left_join(xwalk, by = c("v000", "v001")) %>%
+  filter((v000 == "NG7" & year %in% 2010:2018)) %>%
+  arrange(caseid, year) %>%
+  group_by(caseid) %>%
+  mutate(num_prev_children = cumsum(lag(birth, default = 0))) %>%
+  ungroup()
+
+## birth panel 
+birth_panel <- birth_panel %>% 
+  left_join(coverage_data_admin2)
+```
+
+
+```{r}
+logit_model0 <- feglm(
+  birth ~ pop_share_covered_3g + pop_share_covered_2g | year + v001 , 
+  data = birth_panel %>% filter(year > 2011),  
+  family = binomial(link = "logit"), 
+  cluster = "v001")
+
+summary(logit_model0)
+
+logit_model1 <- feglm(
+  birth ~ area_share_3g_admin2 | year + gid_2 + v012 + v190 + v025 + v714 + v130 + num_prev_children, 
+  data = birth_panel %>% filter(year > 2011),  
+  family = binomial(link = "logit"), 
+  cluster = "gid_2")
+
+summary(logit_model1)
+
+## discrete dummy 
+birth_panel <- birth_panel %>% 
+  mutate(area_share_3g_admin2_dummy = case_when(area_share_3g_admin2 > 0.5 ~ 1, TRUE ~ 0))
+
+logit_model2 <- feglm(
+  birth ~  area_share_3g_admin2_dummy | year + v012 + v190 + v025 + v714  + v130 + num_prev_children + gid_2, 
+  data = birth_panel %>% filter(year > 2011),  
+  family = binomial(link = "logit"), 
+  cluster = "gid_2")
+
+summary(logit_model2)
+
+
+library(modelsummary)
+
+modelsummary(
+  list("Model 1" = logit_model1, "Model 2" = logit_model2),
+  statistic = "std.error",  # shows std. errors below coefficients
+  stars = TRUE,             # add significance stars
+  output = "html"       # or "latex", "html", etc.
+)
+```
+
+
+
+## Robustness checks 
+
+
+```{r}
+results <- list()
+
+for (i in seq(0.1, .9, by = 0.1)) {
+## discrete dummy 
+birth_panel <- birth_panel %>% 
+  mutate(area_share_3g_admin2_dummy = case_when(area_share_3g_admin2 > i ~ 1, TRUE ~ 0))
+
+logit_model <- feglm(
+  birth ~  area_share_3g_admin2_dummy | year + v012 + v190 + v025 + v714  + v130 + num_prev_children + gid_2, 
+  data = birth_panel,  
+  family = binomial(link = "logit"), 
+  cluster = "gid_2")
+
+# Store tidy output with threshold info
+  tidy_out <- broom::tidy(logit_model) %>% 
+    mutate(threshold = i)
+  
+  # Append to list
+  results[[length(results) + 1]] <- tidy_out
+}
+
+
+results_df <- results %>% bind_rows()
+
+# Filter to the 3G dummy term only
+plot_data <- results_df %>%
+  filter(term == "area_share_3g_admin2_dummy") %>%
+  mutate(
+    lower = estimate - 1.96 * std.error,
+    upper = estimate + 1.96 * std.error
+  )
+
+# Plot
+ggplot(plot_data, aes(x = threshold, y = estimate)) +
+  geom_line(color = "black") +
+  geom_point() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Effect of 3G (Binary) on Birth Probability Across Thresholds",
+    x = "Threshold for Defining 3G Coverage (Admin2 level)",
+    y = "Logit Coefficient (with 95% CI)"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+birth_panel_quintiles <- birth_panel %>%
+   filter(year > 2013) %>% 
+  mutate(coverage_quantile_num = as_factor(ntile(area_share_3g_admin2, 5)))
+
+
+logit_model <- feglm(
+  birth ~ coverage_quantile_num | year + v001 + v012 + v190 + v025 + v714 + v130,
+  data = birth_panel_quintiles %>% filter(year > 2013),
+  family = binomial(link = "logit"),
+  cluster = "v001"
+)
+
+df <- broom::tidy(logit_model)
+
+
+# Plot
+df %>% 
+  add_row(term = "coverage_quantile_num1", estimate = 0) %>% 
+  mutate(decile = as.numeric(substr(term, 22,24))) %>% 
+  ggplot(aes(x = decile, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Effect of 3G Coverage (Quantile Rank)",
+    y = "Logit Coefficient",
+    x = ""
+  ) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+birth_panel %>% 
+  group_by(coverage_quantile_num) %>% 
+  summarize(coverage = mean(area_share_3g_admin2)) %>% 
+  ggplot(aes(x = coverage_quantile_num, y = coverage)) + 
+  geom_point() + 
+  geom_line() + 
+  cowplot::theme_cowplot()
+```
+
+
+
+## lag 3 coverage 
+
+
+```{r}
+## birth panel 
+birth_panel <- birth_panel %>%
+  group_by(gid_2, caseid) %>%
+  arrange(year, .by_group = TRUE) %>%
+  mutate(
+    area_share_3g_admin2_lag1 = lag(area_share_3g_admin2, n = 1),
+    area_share_3g_admin2_lead1 = lead(area_share_3g_admin2, n = 1)
+  ) %>%
+  ungroup()
+
+logit_model_lag <- feglm(
+  birth ~ area_share_3g_admin2_lag1 | year + gid_2 + v012 + v190 + v025 + v714 + v130 ,
+  data = birth_panel %>% filter(year > 2013),
+  family = binomial(link = "logit"),
+  cluster = "gid_2"
+)
+
+summary(logit_model_lag)
+
+
+logit_model_lead <- feglm(
+  birth ~ area_share_3g_admin2_lag1 | year + gid_2  ,
+  data = birth_panel, #%>% filter(year < 2018),
+  family = binomial(link = "logit"),
+  cluster = "gid_2"
+)
+
+summary(logit_model_lead)
+```
+
+## lag births 
+
+```{r}
+birth_panel <- birth_panel %>%
+  group_by(gid_2, caseid) %>%
+  arrange(year, .by_group = TRUE) %>%
+  mutate(
+    birth_lead1 = lead(birth, n = 2),
+    birth_lag1  = lag(birth, n = 1)
+  ) %>%
+  ungroup()
+
+
+# Future births ~ current 3G
+logit_model_birth_lead <- feglm(
+  birth_lead1 ~ area_share_3g_admin2  | year + gid_2 + v012 + v190 + v025 + v714 + v130 + num_prev_children + v001 , 
+  data = birth_panel %>% filter(year > 2012),
+  family = binomial(link = "logit"),
+  cluster = "gid_2"
+)
+
+logit_model_birth_lead
+
+# Future births ~ current 3G
+logit_model_birth_lag <- feglm(
+  birth_lag1 ~ area_share_3g_admin2 | year + gid_2 + v012 + v190 + v025 + v714 + v130, 
+  data = birth_panel,
+  family = binomial(link = "logit"),
+  cluster = "gid_2"
+)
+
+logit_model_birth_lag
+```
+
+
+
+```{r}
+birth_panel <- birth_panel %>%
+  group_by(v001) %>%
+  mutate(
+    treat_year = min(year[area_share_covered_3g > 0.1], na.rm = TRUE), #area_share_3g_admin2
+    treat_year = ifelse(is.infinite(treat_year), NA, treat_year)  # Handle units never treated
+  ) %>%
+  ungroup()
+
+sunab_model_cluster <- feglm(
+  birth ~ sunab(treat_year, year) + v012  + v190 + v025 + v714 + v130 + num_prev_children  |
+    v001 + year,
+  data = birth_panel %>% filter(year > 2010),
+  family = binomial(link = "logit"),
+  cluster = "v001"
+)
+
+iplot(sunab_model_cluster,
+      ref.line = 0,
+      main = "Event Study: 3G Rollout and Births",
+      xlab = "Years Since 3G Rollout",
+      ylab = "Logit Coefficient")
+```
+
+
+```{r}
+birth_panel <- birth_panel %>%
+  group_by(gid_2) %>%
+  mutate(
+    treat_year = min(year[area_share_3g_admin2 > 0.1], na.rm = TRUE), #area_share_3g_admin2
+    treat_year = ifelse(is.infinite(treat_year), NA, treat_year)  # Handle units never treated
+  ) %>%
+  ungroup()
+
+
+sunab_model_admin2 <- feglm(
+  birth ~ sunab(treat_year, year) + v012 + v190 + v025 + v714 + v130 + num_prev_children  |
+    gid_2 + year,
+  data = birth_panel,
+  family = binomial(link = "logit"),
+  cluster = "gid_2"
+)
+
+iplot(sunab_model_admin2,
+      ref.line = 0,
+      main = "Event Study: 3G Rollout and Births",
+      xlab = "Years Since 3G Rollout",
+      ylab = "Logit Coefficient")
+```
+
+
+
+
+```{r}
+library(did)
+
+# Replace NA values in treat_year with a placeholder (e.g., 9999)
+birth_panel <- birth_panel %>%
+  filter(year > 2011) %>% 
+  mutate(treat_year = ifelse(is.na(treat_year), 9999, treat_year))
+
+# Convert gid_2 to numeric
+birth_panel <- birth_panel %>%
+  mutate(gid_2 = as.numeric(as.character(gid_2)))
+
+att_gt_results <- att_gt(
+  yname = "birth",
+  tname = "year",
+  idname = "v001",  # Use 'numeric_id' if you created a new numeric identifier
+  gname = "treat_year",
+  xformla = ~ v012 + v190 + v025 + v714 + v130 + num_prev_children,
+  data = birth_panel,
+  est_method = "dr",
+  control_group = "notyettreated",
+  allow_unbalanced_panel = TRUE
+)
+
+aggregated_effects <- aggte(att_gt_results, type = "group", na.rm = T)
+
+overall_att <- aggte(att_gt_results, type = "simple", na.rm = T)
+
+summary(aggregated_effects)
+
+
+dynamic_effects <- aggte(att_gt_results, type = "dynamic", na.rm = TRUE)
+
+ggdid(dynamic_effects)
+```
+
+

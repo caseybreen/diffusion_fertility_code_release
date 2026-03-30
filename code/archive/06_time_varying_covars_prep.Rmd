@@ -1,0 +1,64 @@
+---
+title: "R Notebook"
+author: Casey Breen
+---
+
+Summary: Prep data scripts 
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+
+```{r}
+nigeria_covariates <- read_csv(here("fertility_impacts", "data", "time_variant_covariates_ng_wide.csv"))
+
+nigeria_covariates %>% colnames()
+```
+
+```{r}
+df_long <- nigeria_covariates %>%
+  pivot_longer(
+    cols = matches("\\d{4}$"),  # any column ending in a 4-digit year
+    names_to = c("variable", "year"),
+    names_pattern = "(.*)_(\\d{4})",
+    values_to = "value"
+  )
+
+df_long %>% 
+  group_by(variable, year) %>% 
+  count()
+
+wide_df <- df_long %>%
+  pivot_wider(
+    id_cols = c(year, dhscc, v001),
+    names_from = variable,
+    values_from = value
+  ) %>%
+  arrange(dhscc, v001, year)
+
+
+covars <- wide_df %>% 
+  filter(year %in% c(2010:2018))
+
+
+filled_df <- covars %>%
+   mutate(
+    year = as.integer(year),
+    dhscc = as.character(dhscc),
+    v001 = as.integer(v001)
+  ) %>%
+  arrange(dhscc, v001, year) %>%
+  group_by(dhscc, v001) %>%
+  fill(everything(), .direction = "downup") %>%
+  ungroup()
+
+covars %>% 
+  write_csv(here("fertility_impacts", "data", "time_variant_covariates_ng.csv"))
+```
+
+
+
+
+

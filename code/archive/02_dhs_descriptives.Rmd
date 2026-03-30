@@ -1,0 +1,97 @@
+---
+title: "DHS Descriptives"
+author: Casey Breen
+---
+
+Summary: DHS Descriptives 
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+library(janitor)
+library(haven)
+library(splines)
+
+# Birth recode (if needed later)
+individual_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA")) %>% clean_names()
+
+# Covariates
+ng_covariates <- read_csv(here("fertility_impacts", "data", "1_covariables_0919_NGA.csv")) %>%
+  filter(dhscc == "NG", collection_year == 2018)
+
+# Cluster to admin-2 xwalk and pick first 
+xwalk <- read_csv(here("fertility_impacts", "data", "xwalk_ng.csv") %>%
+  clean_names() %>% 
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup() %>% 
+  filter(v000 == "NG7")
+
+# Cluster-level coverage
+coverage_data <- read_csv(here("fertility_impacts", "data", "coverage_indicators_allyears.csv")) %>%
+  filter(source == "gsma", dhsyear %in% c(2018), dhscc == "NG") %>%
+  mutate(v000 =  "NG7")
+
+```
+
+
+```{r}
+# Define 5-year age groups
+individual_data_2018 <- individual_data_2018 %>%
+  mutate(age_group = cut(v012, breaks = seq(15, 50, by = 5), right = FALSE,
+                         labels = c("15-19", "20-24", "25-29", "30-34", "35-39", "40-44", "45-49")))
+
+age_group_summary <- individual_data_2018 %>%
+  filter(v613 <= 20) %>% 
+  group_by(age_group) %>%
+  summarise(
+    mean_v613 = mean(v613, na.rm = TRUE),
+    sd_v613 = sd(v613, na.rm = TRUE),
+    count = n(),
+    se_v613 = sd_v613 / sqrt(count)
+  )
+
+ggplot(age_group_summary, aes(x = age_group, y = mean_v613)) +
+  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = mean_v613 - se_v613, ymax = mean_v613 + se_v613), width = 0.2) +
+  geom_line(aes(group = 1), linetype = "dashed") +
+  labs(
+    title = "Mean Ideal Number of Children by Age Group",
+    x = "Age Group",
+    y = "Mean Ideal Number of Children"
+  ) + theme_minimal()
+
+```
+
+```{r}
+# Apply top coding to v201
+individual_data_2018 <- individual_data_2018 %>%
+  mutate(v218_top = ifelse(v201 > 10, 10, v218))
+
+
+age_group_summary <- individual_data_2018 %>%
+  filter(v613 <= 20) %>% 
+  group_by(v218_top, age_group) %>%
+  summarise(
+    mean_v613 = mean(v613, na.rm = TRUE),
+    sd_v613 = sd(v613, na.rm = TRUE),
+    count = n(),
+    se_v613 = sd_v613 / sqrt(count)
+  )
+
+ideal_children_by_parity <- ggplot(age_group_summary, aes(x = v218_top, y = mean_v613)) +
+  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = mean_v613 - se_v613, ymax = mean_v613 + se_v613), width = 0.2) +
+  geom_line(aes(group = 1), linetype = "dashed") +
+  labs(
+    title = "Mean Ideal Number of Children by Parity",
+    x = "parity",
+    y = "Mean Ideal Number of Children"
+  ) + theme_minimal() + 
+  facet_wrap(~age_group) + 
+  ylim(0, 20) + 
+  geom_abline(slope = 1)
+```
+

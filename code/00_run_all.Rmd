@@ -1,0 +1,30 @@
+---
+title: "Run all Scripts"
+author: Casey Breen
+---
+
+## Summary 
+
+This script runs all code to replicate figures and tables. 
+
+The scripts are numbered in the order they should be run.
+
+```{r}
+## Library packages 
+library(here)
+source(here("code", "helpers.R"))
+
+## List of rmd files 
+rmd_files <- list.files(path = file.path(here("code//")), pattern=".Rmd")   
+rmd_files <- rmd_files[!rmd_files %in% c("00_run_all.Rmd", "07_google_trends.Rmd")]
+
+## Run all files 
+for (cur_file in rmd_files) {
+	cat("================================\n")
+	tictoc::tic(glue::glue("Finished with {cur_file}, time:"))
+	cat("Running ", cur_file, "\n")
+  	source_rmd(cur_file)
+  	tictoc::toc()
+	cat("================================\n")
+}
+```

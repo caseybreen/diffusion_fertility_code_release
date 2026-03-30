@@ -1,0 +1,251 @@
+---
+title: "Explorations"
+author: Casey Breen
+---
+
+Summary: Fit an alternative Diff-in-Diff model using two different types of 
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(srvyr)
+library(survey)
+library(DHS.rates)
+library(fixest)
+library(broom)
+library(sf)
+
+
+## custom color schemes
+cudb <- c("#49b7fc", "#ff7b00", "#17d898", "#ff0083", "#0015ff", "#e5dx00", "#999999")
+cud <- c("#D55E00", "#56B4E9", "#009E73", "#CC79A7", "#0072B2", "#E69F00", "#F0E442", "#999999")
+```
+
+
+```{r}
+## ng 2018 
+ng_2008 <- haven::read_dta(here("fertility_impacts", "data", "NGBR7BFL.DTA"))
+ng_2018 <- haven::read_dta(here("fertility_impacts", "data", "NGBR53FL.DTA"))
+
+## individual data 
+ng_2018_women <- haven::read_dta(here("fertility_impacts", "data", "NGIR7BFL.DTA"))
+ng_2008_women <- haven::read_dta(here("fertility_impacts", "data", "NGIR53FL.DTA"))
+```
+
+
+
+```{r}
+mobile_coverage <- read_csv(here("mobile_coverages", "out", "dhs_pop_coverage_rollout.csv")) %>% 
+  filter(dhscc == "NG") %>% 
+  janitor::clean_names() 
+
+ng_covariates <- read_csv(here("fertility_impacts", "data", "1_covariables_0919_NGA.csv"))
+
+ng_covariates <- ng_covariates %>% 
+  filter(dhscc == "NG")
+``` 
+
+
+
+```{r}
+ng_2008 <- ng_2008 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008))
+
+ng_2018 <- ng_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018))
+
+## nigeria 2018
+ng_2018_women <- ng_2018_women %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018))
+
+## nigeria 2008 
+ng_2008_women <- ng_2008_women %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008))
+```
+
+## Cluster matching 
+
+```{r}
+# Convert the data to sf object
+ng_covariates_sf <- st_as_sf(ng_covariates, coords = c("longitude", "latitude"), crs = 4326)
+
+# Convert the data to sf object
+ng_covariates_sf <- st_as_sf(ng_covariates, coords = c("longitude", "latitude"), crs = 4326)
+
+# Split data by year
+ng_2008 <- ng_covariates_sf %>% filter(collection_year == 2008)
+ng_2018 <- ng_covariates_sf %>% filter(collection_year == 2018)
+
+# Find the nearest 2008 cluster for each 2018 cluster
+nearest_indices <- st_nearest_feature(ng_2018, ng_2008)
+
+# Extract the nearest clusters from 2008 based on nearest indices
+matched_2008 <- ng_2008[nearest_indices, ]
+
+# Calculate distances between the matched clusters
+distances <- st_distance(ng_2018$geometry, matched_2008$geometry, by_element = TRUE)
+
+# Combine the matched data into one data frame
+matched_clusters <- cbind(ng_2018, matched_2008, distances)
+
+matched_clusters %>% summarize(mean(distances))
+```
+
+
+
+```{r}
+## matched clusters 
+matched_clusters <- cbind(
+  v001_2018 = ng_2018$v001,
+  v001_2008 = matched_2008$v001,
+  ng_2018 = ng_2018,
+  matched_2008 = matched_2008,
+  distances = distances
+)
+
+# Convert to a regular data frame for easier manipulation
+matched_clusters_df <- as.data.frame(matched_clusters)
+
+# Select only the relevant columns (v001 and distances)
+cluster_crosswalk <- matched_clusters_df %>% 
+  select(v001_2018, v001_2008, distances) %>% 
+  mutate(pseudo_cluster = row_number())
+
+
+## left join 
+ng_2018_women <- ng_2018_women %>% 
+  left_join(cluster_crosswalk, by = c("v001" = "v001_2018"))
+
+
+ng_2008_women <- ng_2008_women %>% as.data.frame() %>% haven::zap_labels()
+  
+ng_2018_women <- ng_2018_women %>% as.data.frame() %>% haven::zap_labels()
+
+
+ng_full <- ng_2008_women %>% 
+  bind_rows(ng_2018_women) %>% 
+  mutate(psuedo_cluster = coalesce(v001_2008, v001))
+
+ng_full <- ng_full %>% 
+  left_join(ng_covariates, by = c("dhsyear", "v001"))
+```
+
+
+```{r}
+ng_full <- ng_full %>% 
+  mutate(pop_share_covered_3g = case_when(
+    is.na(pop_share_covered_3g) ~ 0,
+    TRUE ~ pop_share_covered_3g
+  ))
+```
+
+
+
+```{r}
+ng_full <- ng_full %>% 
+  mutate(infant_deaths = v206 + v207) %>% 
+  mutate(v005 <- v005 / 1000000)
+```
+
+There was no 3g coverage anywhere in 2008. 
+
+
+```{r}
+did_5year_baseline <- tidy(feols(v208 ~ 
+                          pop_share_covered_3g:as.factor(dhsyear) + 
+                          as.factor(dhsyear) + ## dhs year 
+                          pop_share_covered_2g + ## population covered 2g 
+                          v025 + ## urban/rural 
+                          nl_year + rain_mean + temp_mean + gdp_mean + 
+                          v158 +    ## frequency of listening to the radio
+                          v159    ## Frequency of watching tele + gdp_wght  + temp_mean + rain_mean  ## time varying covariates
+                        | ## fixed effects below 
+                          psuedo_cluster + ## cluster fixed effect 
+                          v012 + ## age in years
+                          v130, ## religion
+                        data = ng_full, 
+                        weights = ng_full$v005)) %>% 
+  mutate(model = "Baseline") %>% 
+  mutate(time = "Births (last 5 years)")
+
+
+did_5year_controls <- tidy(feols(v208 ~ 
+                          pop_share_covered_3g:as.factor(dhsyear) + 
+                          as.factor(dhsyear) + ## dhs year 
+                          pop_share_covered_2g + ## population covered 2g 
+                          v025 + ## urban/rural 
+                          nl_year + rain_mean + temp_mean + gdp_mean + 
+                          v158 +    ## frequency of listening to the radio
+                          v159    ## Frequency of watching tele + gdp_wght  + temp_mean + rain_mean  ## time varying covariates
+                        | ## fixed effects below 
+                          psuedo_cluster + ## cluster fixed effect 
+                          v012 + ## age in years
+                          v130, ## religion
+                        data = ng_full, 
+                        weights = ng_full$v005)) %>% 
+  mutate(model = "Baseline + Controls") %>% 
+  mutate(time = "Births (last 5 years)")
+
+did_5year_controls_plus_cluster <- tidy(feols(v208 ~ 
+                                 pop_share_covered_3g:as.factor(dhsyear) + 
+                                 as.factor(dhsyear) + ## dhs year 
+                                 pop_share_covered_2g + ## population covered 2g 
+                                 v190 + ## wealth 
+                                 v025 + ## urban/rural 
+                                 nl_year + rain_mean + temp_mean + gdp_mean 
+                               | ## fixed effects below 
+                                 psuedo_cluster + ## cluster fixed effect 
+                                 v012 + ## age in years
+                                 v731 + ## employment status 
+                                 v106+  ## education 
+                                 v130, ## religion
+                               data = ng_full, 
+                               weights = ng_full$v005)) %>% 
+  mutate(model = "Baseline + Controls + Psuedo Clusters") %>% 
+  mutate(time = "Births (last 5 years)")
+
+coefficients <- bind_rows(did_5year_baseline, did_5year_controls, did_5year_controls_plus_cluster) %>% 
+  filter(term == "pop_share_covered_3g:as.factor(dhsyear)2018")
+
+prob_birth_5years <- ng_full %>% filter(year == 2018) %>% summarize(mean(v208)) %>% pull()
+
+coefficients_plot_full <- coefficients %>% 
+  mutate(estimate = case_when(
+    time == "Births (last 5 years)" ~ estimate / prob_birth_5years,
+  )) %>% 
+    mutate(std.error = case_when(
+    time == "Births (last 5 years)" ~ std.error / prob_birth_5years,
+  )) %>% 
+  mutate(model = factor(model, levels = c(
+      "Baseline", 
+      "Baseline + Controls",
+      "Baseline + Controls + Psuedo Clusters"))) %>% 
+  ggplot() + 
+  geom_pointrange(aes(color = model,
+                      x = model,
+                      y = estimate,
+                      ymin = estimate - 1.96 * std.error,
+                      ymax = estimate + 1.96 * std.error),
+                  shape =22,
+                  fill = "white",
+                  fatten = 10, 
+                  position = position_dodge(.3)) + 
+  scale_y_continuous(labels = scales::percent) + 
+  cowplot::theme_cowplot() + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") + 
+  annotate("text", x = 1.7, y = 0.01, label = "No 3G expansion", color = "darkgrey")+ 
+  labs(x = "",
+       y = "Number of Births \n (Past 5 Years)",
+       color = "") + 
+  scale_color_manual(values = cud) + 
+  theme(legend.position = "none") 
+
+# Save plots
+ggsave(plot = coefficients_plot_full, filename = here("fertility_impacts", "figures", "diff_in_diff_effect_plot.png"),
+       bg = "white", height = 4, width = 9)
+```
+
+
+
+

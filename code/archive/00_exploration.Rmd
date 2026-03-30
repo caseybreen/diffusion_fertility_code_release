@@ -1,0 +1,199 @@
+---
+title: "Explorations"
+author: Casey Breen
+---
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+```
+
+
+```{r}
+ng_2008 <- haven::read_dta("/Users/caseybreen/Library/CloudStorage/Dropbox-NuffieldCollege/Casey Breen/dgg_research/national/data_refresh/dhs/birth_recode/NG_2008.DTA")
+
+ng_2018 <- haven::read_dta("/Users/caseybreen/Library/CloudStorage/Dropbox-NuffieldCollege/Casey Breen/dgg_research/national/data_refresh/dhs/birth_recode/NG_2018.DTA")
+
+
+mobile_coverage <- read_csv(here("mobile_coverages", "out", "dhs_pop_coverage_rollout.csv")) %>% 
+  filter(dhscc == "NG")
+``` 
+
+
+
+```{r}
+ng_2008 <- ng_2008 %>% 
+  mutate(infant_death = case_when(
+    b7 < 12 ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008))
+
+ng_2018 <- ng_2018 %>% 
+  mutate(infant_death = case_when(
+    b7 < 12 ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018))
+
+```
+
+
+
+
+```{r}
+ng_2008 %>% 
+  summarize(mean(infant_death))
+
+
+ng_2018 %>% 
+  summarize(mean(infant_death))
+```
+
+
+```{r}
+mobile_coverage %>% 
+  count(dhsyear)
+```
+
+
+
+
+```{r}
+data %>% 
+  group_by(v001, v002, v003) %>% 
+  summarize(mean(b5))
+
+ng_2018 %>% 
+  group_by(v190) %>% 
+  summarize(mean(infant_death))
+
+ng_2008 %>% 
+  group_by(v190) %>% 
+  summarize(mean(infant_death))
+```
+
+
+
+```{r}
+ng_2008 %>% 
+  count(infant_death) %>% 
+  mutate(prop = n / sum(n))
+```
+
+```{r}
+infant_death_df_2008 <- ng_2008 %>% 
+  mutate(diff = v008 - b3) %>% 
+  filter(diff < 60) %>% 
+  group_by(v001) %>% 
+  summarize(infant_death_rate = mean(infant_death))
+
+
+infant_death_df_2018 <- ng_2018 %>% 
+  mutate(diff = v008 - b3) %>% 
+  filter(diff < 60) %>% 
+  group_by(v001) %>% 
+  summarize(infant_death_rate = mean(infant_death))
+
+
+infant_death_df %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008), by = c("v001")) %>% 
+  group_by(`dummy_pop_share_covered_3G+_above_90`) %>% 
+  summarize(mean(infant_death_rate), n())
+
+
+infant_death_df_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018), by = c("v001")) %>% 
+  group_by(`dummy_pop_share_covered_3G+_above_90`) %>% 
+  summarize(mean(infant_death_rate), n())
+
+
+infant_death_df_2008 <- infant_death_df_2008 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008), by = c("v001"))
+
+infant_death_df_2008 %>% 
+  mutate(decile = ntile(`pop_share_covered_2G+`, 5)) %>% 
+  group_by(decile) %>% 
+  summarize(infant = mean(infant_death_rate), n(), covered = mean(`pop_share_covered_2G+`)) %>% 
+  ggplot(aes(x = decile, y = infant)) + 
+  geom_line() + 
+  geom_point() + 
+  ylim(0, 0.10) + 
+  cowplot::theme_cowplot()
+
+
+infant_death_df_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018), by = c("v001")) %>% 
+  mutate(decile = ntile(`pop_share_covered_3G+`, 5)) %>% 
+  group_by(decile) %>% 
+  summarize(infant = mean(infant_death_rate), n(), covered = mean(`pop_share_covered_3G+`)) %>% 
+  ggplot(aes(x = decile, y = infant)) + 
+  geom_line() + 
+  geom_point() + 
+  ylim(0, 0.10) + 
+  cowplot::theme_cowplot()
+
+
+infant_death_df_2008 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2008), by = c("v001")) %>% 
+  mutate(decile = ntile(`pop_share_covered_2G+`, 5)) %>% 
+  group_by(decile) %>% 
+  summarize(infant = mean(infant_death_rate), n(), covered = mean(`pop_share_covered_2G+`)) %>% 
+  ggplot(aes(x = decile, y = infant)) + 
+  geom_line() + 
+  geom_point() + 
+  ylim(0, 0.10) + 
+  cowplot::theme_cowplot()
+
+
+```
+
+
+
+```{r}
+infant_death_df_2008 %>% 
+  group_by(`dummy_pop_share_covered_2G+_above_50`) %>% 
+  summarize(mean = mean(infant_death_rate), n(),
+            sd = sd(infant_death_rate) / sqrt(n())) %>% 
+  ggplot() + 
+  geom_pointrange(aes(x = `dummy_pop_share_covered_2G+_above_50`, ymin = mean - 1.96*sd, ymax = mean + 1.96*sd, y = mean)) + 
+  cowplot::theme_cowplot()
+
+
+infant_death_df_2008 %>% 
+  mutate(dummy = as.factor(`dummy_pop_share_covered_2G+_above_90`)) %>% 
+  group_by(dummy) %>% 
+  summarize(mean = mean(infant_death_rate), n(),
+            sd = sd(infant_death_rate) / sqrt(n())) %>% 
+  ggplot() + 
+  geom_pointrange(aes(x = dummy, ymin = mean - 1.96*sd, ymax = mean + 1.96*sd, y = mean)) + 
+  cowplot::theme_cowplot() + 
+  ylim(0, .1)
+  
+```
+
+
+```{r}
+infant_death_df_2018
+
+
+infant_death_df_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018), by = c("v001")) %>% 
+  group_by(`dummy_pop_share_covered_3G+_above_90`) %>% 
+  summarize(mean(infant_death_rate), n())
+
+
+
+infant_death_df_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018), by = c("v001")) %>% 
+  group_by(`pop_share_covered_no22G+` > 0.9) %>% 
+  summarize(mean(infant_death_rate), n())
+
+
+ infant_death_df_2018 %>% 
+  left_join(mobile_coverage %>% filter(dhsyear == 2018), by = c("v001")) %>% 
+  count(`pop_share_covered_2G+` > .9)
+```
+
+

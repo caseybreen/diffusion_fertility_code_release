@@ -1,0 +1,635 @@
+---
+title: "Descriptive differences"
+author: Casey Breen
+---
+
+
+Summary: Investigate various difference mechanisms 
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+library(janitor)
+library(haven)
+library(splines)
+
+# Birth recode (if needed later)
+birth_data_2018 <- read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA")) %>% clean_names()
+individual_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA")) %>% clean_names()
+
+# Covariates
+ng_covariates <- read_csv(here("fertility_impacts", "data", "1_covariables_0919_NGA.csv")) %>%
+  filter(dhscc == "NG", collection_year == 2018)
+
+# Cluster to admin-2 xwalk and pick first 
+xwalk <- read_csv(here("fertility_impacts", "data", "xwalk_ng.csv")) %>%
+  clean_names() %>% 
+  group_by(v000, v001) %>%
+  slice(1) %>%
+  ungroup() %>% 
+  filter(v000 == "NG7")
+
+# Cluster-level coverage
+coverage_data <- read_csv(here("fertility_impacts", "data", "coverage_indicators_allyears.csv")) %>%
+  filter(source == "gsma", dhsyear %in% c(2018), dhscc == "NG") %>%
+  mutate(v000 =  "NG7")
+
+```
+
+```{r}
+## mobile coverage 
+coverage_data <- read_csv(here("fertility_impacts", "data", "coverage_indicators_allyears.csv")) %>% 
+    janitor::clean_names()
+
+coverage_data_admin2 <- read_csv(here("fertility_impacts", "data", "ng_adm2_coverage.csv")) %>% 
+  janitor::clean_names()
+
+## data coverage 
+coverage_data <- coverage_data %>% 
+  filter(source == "gsma") %>% 
+  filter(dhsyear %in% c(2018) & dhscc == "NG") %>% 
+  mutate(v000 = case_when(
+    dhsyear == 2013 ~ "NG6",
+    dhsyear == 2018 ~ "NG7"
+  ))
+
+coverage_data_admin2 <- coverage_data_admin2 %>% 
+  select(-x1) %>% 
+  pivot_longer(-gid_2) %>% 
+  mutate(name = substring(name, 15, 18)) %>% 
+  rename(area_share_3g_admin2 = value, year = name) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  mutate(v000 = "NG7") 
+
+coverage_data_admin2 <- coverage_data_admin2 %>% 
+  left_join(xwalk %>% filter(v000 == "NG7"), by = c("gid_2", "v000"))
+```
+
+
+
+```{r}
+# Expand person-years
+expanded_data <- individual_data_2018 %>%
+select(caseid, 
+       v000,
+       v001,
+       v012,  # Age
+       v212,  # Age at first birth
+       v511,  # Age at first marriage
+       v190,  # Household wealth index
+       v025,  # Urban/rural
+       v714,  # Employment status
+       v106,  # Education
+       v130,  # Religion
+       v169a, # own mobile phone 
+       v613,  # ideal number of children 
+       v158,  # Frequency of listening to the radio
+       v159,  # Frequency of watching television 
+       v301, # Birth control 
+       v313,   # Birth control (none, traditional, modern)
+       v313,  # Birth control (none, traditional, modern)
+       v743a,
+       v743b,
+       v743c,
+       v743d,
+       v743e,
+       v743f,
+       v739) %>%  # Frequency of watching television
+  crossing(year = 1990:2018)
+
+# Reshape births to long
+birth_long <- birth_data_2018 %>%
+  pivot_longer(starts_with("b3"), names_to = "birth_order", values_to = "b3") %>%
+  filter(!is.na(b3)) %>%
+  mutate(year = 1900 + floor((b3 - 1) / 12), birth = 1) %>%
+  select(v000, caseid, year, birth)
+
+# Merge and clean
+birth_panel <- expanded_data %>%
+  left_join(birth_long, by = c("v000", "caseid", "year")) %>%
+  mutate(birth = replace_na(birth, 0)) %>%
+  left_join(coverage_data, by = join_by(v000, v001, year)) %>%
+  left_join(xwalk, by = c("v000", "v001")) %>%
+  arrange(caseid, year) %>%
+  group_by(caseid) %>%
+  mutate(num_prev_children = cumsum(lag(birth, default = 0))) %>%
+  ungroup() %>% 
+  filter((v000 == "NG7" & year %in% 2010:2018)) 
+
+## birth panel 
+birth_panel_restricted <- birth_panel %>% 
+  left_join(coverage_data_admin2) %>% 
+  filter(!is.na(v212)) %>% 
+  mutate(v212 = as.numeric(v212)) 
+
+## birth panel restricted 
+birth_panel_restricted <- birth_panel_restricted %>% 
+  left_join(ng_covariates) %>% 
+  janitor::clean_names()
+
+# Define age cohorts (example: 15-24, 25-34, 35-44, 45-49)
+birth_panel_restricted <- birth_panel_restricted %>%
+  mutate(age_cohort = case_when(
+    v012 >= 15 & v012 <= 24 ~ "15-24",
+    v012 >= 25 & v012 <= 34 ~ "25-34",
+    v012 >= 35 & v012 <= 49 ~ "35+", 
+    TRUE ~ NA_character_
+  )) 
+
+birth_panel_restricted <- birth_panel_restricted %>% 
+  mutate(islam = case_when(
+    v130 == 3 ~ 1,
+    TRUE ~ 0))
+```
+
+## Age at first cohabitation 
+
+Restrict to people who were married during window
+
+```{r}
+birth_panel_restricted <- birth_panel_restricted %>% 
+  group_by(v001) %>% 
+  mutate(expansion_3g = max(pop_share_covered_3g) - min(pop_share_covered_3g)) %>% 
+  ungroup() 
+
+model_age_first_cohabitation <- feols(
+  v511 ~ expansion_3g + 
+    v190 +  # Wealth quantile
+    v714 +  # Employment status
+    v106 +  # Education
+    v130 +  # Religion
+   # v613 +  # Ideal number of children
+    v158 +  # Radio
+    v159 +  # TV
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght ## cluster fixed effects
+  | v012 + gid_1,  ## year fixed effects 
+  data = birth_panel_restricted %>% 
+    filter(year == 2010  & pop_share_covered_3g < 0.1 & v012 - v212 <= 7), 
+  cluster = "v001")
+
+summary(model_age_first_cohabitation)
+```
+
+## Ideal family size 
+
+```{r}
+## birth panel restricted 
+birth_panel_restricted <- birth_panel_restricted %>% 
+  group_by(v001) %>% 
+  mutate(expansion_3g = max(pop_share_covered_3g) - min(pop_share_covered_3g)) %>% 
+  ungroup() %>% 
+  filter(v613 < 63)
+
+##ideal family size 
+model_age_fam_size <- feols(
+  v613 ~ expansion_3g +
+    v190 +  # Wealth quantile
+    v714 +  # Employment status
+    v106 +  # Education
+    v130 +  # Religion
+    v158 +  # Radio
+    v159 +  # TV
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght ## cluster fixed effects 
+    | v012 + gid_1,  ## year fixed effects  
+  data = birth_panel_restricted %>% 
+  filter(year == 2010 & pop_share_covered_3g < 0.1), 
+  cluster = "v001")
+
+summary(model_age_fam_size)
+```
+
+```{r}
+library(modelsummary)
+
+modelsummary(
+  list(
+    "Age at First Cohabitation" = model_age_first_cohabitation,
+    "Age at Family Formation" = model_age_fam_size
+  ),
+  stars = TRUE,
+  output = "latex_tabular"
+)
+```
+
+
+
+
+```{r}
+# Modern contraception model
+birth_panel_restricted <- birth_panel_restricted %>%
+  mutate(modern_contra = ifelse(v313 == 3, 1, 0))
+
+model_modern <- feols(
+  modern_contra ~ expansion_3g +
+    v190 + v714 + v106 + v158 + v159 +
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g
+  | v012 + v130 + gid_1,
+  data = birth_panel_restricted %>% filter(year == 2013 & pop_share_covered_3g < 0.1),
+  cluster = "v001",
+  split = "age_cohort"
+)
+
+coef_modern <- imap_dfr(
+  model_modern,
+  ~ {
+    tibble(
+      term = "expansion_3g",
+      estimate = coef(.x)["expansion_3g"],
+      std.error = sqrt(vcov(.x)["expansion_3g", "expansion_3g"]),
+      age_cohort = .y
+    )
+  }
+) %>%
+  mutate(method = "Modern")
+
+# Traditional contraception model
+birth_panel_restricted <- birth_panel_restricted %>%
+  mutate(traditional_contra = ifelse(v313 == 1, 1, 0))
+
+model_traditional <- feols(
+  traditional_contra ~ expansion_3g +
+    v190 + v714 + v106 + v158 + v159 +
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g
+  | v012 + v130 + gid_1,
+  data = birth_panel_restricted %>% filter(year == 2013 & pop_share_covered_3g < 0.1),
+  cluster = "v001",
+  split = "age_cohort"
+)
+
+coef_traditional <- imap_dfr(
+  model_traditional,
+  ~ {
+    tibble(
+      term = "expansion_3g",
+      estimate = coef(.x)["expansion_3g"],
+      std.error = sqrt(vcov(.x)["expansion_3g", "expansion_3g"]),
+      age_cohort = .y
+    )
+  }
+) %>%
+  mutate(method = "Folkloric")
+
+# Combine and clean
+coef_df <- bind_rows(coef_modern, coef_traditional) %>%
+  mutate(
+    age_cohort = str_remove(age_cohort, "sample.var: age_cohort; sample: "),
+    age_cohort = factor(age_cohort, levels = c("15-24", "25-34", "35+")),
+    method = factor(method, levels = c("Modern", "Folkloric"))
+  )
+```
+
+
+
+
+```{r}
+baseline = 8.36
+
+# Confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)
+interval2 <- -qnorm((1 - 0.95) / 2)
+
+coef_df <- coef_df %>%
+  mutate(
+    estimate = estimate ,
+    std.error = std.error,
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+plot_contraception <- coef_df %>%
+  filter(method == "Modern") %>% 
+  ggplot(aes(x = age_cohort, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5), color = "darkred") +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8, color = "darkred") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Modern Contraception Use", 
+    x = "Age Group",
+    y = "Percentage Point Change",
+    color = "Method",
+    shape = "Method"
+  ) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") 
+```
+
+
+```{r}
+birth_panel_restricted %>% 
+  count(v301) %>% 
+  mutate(prop = n / sum(n))
+
+birth_panel_restricted <- birth_panel_restricted %>% 
+  mutate(knows_birth_control = case_when(v301 %in% 2:3 ~ 1, TRUE ~ 0))
+
+birth_control_restricted <- feols(
+  knows_birth_control ~ expansion_3g +
+    v190 + v714 + v106 + v158 + v159 +
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g
+  | v012 + v130 + gid_1,
+  data = birth_panel_restricted %>% filter(year == 2010 & pop_share_covered_3g < 0.3),
+  cluster = "v001",
+  split = "age_cohort"
+)
+
+
+birth_control_restricted <- imap_dfr(
+  birth_control_restricted,
+  ~ {
+    tibble(
+      term = "expansion_3g",
+      estimate = coef(.x)["expansion_3g"],
+      std.error = sqrt(vcov(.x)["expansion_3g", "expansion_3g"]),
+      age_cohort = .y
+    )
+  }
+) %>%
+  mutate(method = "Folkloric")
+
+
+# Combine and clean
+coef_df <- birth_control_restricted %>%
+  mutate(
+    age_cohort = str_remove(age_cohort, "sample.var: age_cohort; sample: "),
+    age_cohort = factor(age_cohort, levels = c("15-24", "25-34", "35+")))
+
+baseline = 95
+
+# Confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)
+interval2 <- -qnorm((1 - 0.95) / 2)
+
+coef_df <- coef_df %>%
+  mutate(
+    estimate = estimate,
+    std.error = std.error,
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+## plot contraception knowledge 
+plot_contraception_knowledge <- coef_df %>%
+  ggplot(aes(x = age_cohort, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5), color = "darkblue") +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8, color = "darkblue") +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(-.02, .1)) +
+  labs(
+    title = "Modern Contraception Knowlege", 
+    x = "Age Group",
+    y = "Percentage Point Change",
+    color = "Method",
+    shape = "Method"
+  ) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") 
+
+
+contraception_figure <- cowplot::plot_grid(plot_contraception, plot_contraception_knowledge, nrow = 2)
+
+# Save plot
+ggsave(plot = contraception_figure, filename = here("impacts_demographic", "figures", "contraception_figure.png"),
+       bg = "white", height = 7, width = 7)
+```
+
+
+
+```{r}
+# Create 5 bins: [0–20%), [20–40%), ..., [80–100%)
+birth_panel_filtered <- birth_panel_filtered %>%
+  mutate(coverage_bin = cut(
+    pop_share_covered_3G,
+    breaks = seq(0, 1, by = 0.2),
+    include.lowest = TRUE,
+    right = FALSE,
+    labels = c("0–20%", "20–40%", "40–60%", "60–80%", "80–100%")
+  ))
+
+# Summarize ownership and 3G by bin 
+summary_by_bin <- birth_panel_filtered %>%
+  filter(year == 2018, !is.na(pop_share_covered_3G)) %>%
+  group_by(coverage_bin) %>%
+  summarize(
+    mean_phone_ownership = mean(v169a, na.rm = TRUE), 
+    n = n(),
+    mean_3G_coverage = mean(pop_share_covered_3G, na.rm = TRUE))
+
+
+# Plot
+mobile_phone_ownership_by_3g_coverage <- ggplot(summary_by_bin, aes(x = coverage_bin, y = mean_phone_ownership)) +
+  geom_col(fill = "lightgrey", color = "black") +
+  geom_text(aes(label = scales::percent(mean_phone_ownership, accuracy = 1)), 
+            vjust = -0.5, size = 4) +
+  ylim(0, 1) +
+  labs(
+    x = "3G Coverage (Cluster Level)",
+    y = "Mean Mobile Phone Ownership"
+  ) +
+  cowplot::theme_cowplot()
+
+
+# Save plot
+ggsave(plot = mobile_phone_ownership_by_3g_coverage,
+       filename = here("impacts_demographic", "figures", "mobile_phone_ownership_by_3g_coverage.png"),
+       height = 4, width = 7, bg = "white")
+```
+
+
+```{r}
+model_traditional <- feols(
+  v714 ~ expansion_3g +
+    v190  + v106 + v158 + v159 +
+    rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g
+  | v012 + v130 + gid_1,
+  data = birth_panel_restricted %>% filter(year == 2013 & pop_share_covered_3g < 0.1),
+  cluster = "v001"
+)
+
+
+```
+## Empowerment 
+
+```{r}
+
+birth_panel_restricted_special <- birth_panel_restricted %>% 
+  filter(!is.na(v743a)) %>% 
+  mutate(
+    v743a = ifelse(v743a %in% c(1), 1, 0),
+    v743b     = ifelse(v743b %in% c(1), 1, 0),
+    v743d    = ifelse(v743d %in% c(1), 1, 0),
+    v743f = ifelse(v743f %in% c(1), 1, 0),
+    v739 = ifelse(v743f %in% c(1), 1, 0)
+  )
+
+outcomes <- c("v743a", "v743b", "v743d", "v743f", "v739")
+
+models <- map(outcomes, ~ feols(
+  as.formula(paste(.x, "~ expansion_3g + v190 + v106 + v158 + v159 +",
+                   "rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g |",
+                   "v012 + v130 + gid_1")),
+  data = birth_panel_restricted_special %>% filter(year == 2013, pop_share_covered_3g < 0.1),
+  cluster = "v001"
+))
+
+names(models) <- outcomes
+
+outcome_labels <- c(
+  v743a = "Own health care",
+  v743b = "Large household purchases",
+  v743d = "Visits to family",
+  v743f = "Spend husband earnings",
+  v739 = "Spend own earnings"
+)
+
+coef_df_empower <- imap_dfr(models, ~ {
+  broom::tidy(.x) %>%
+    filter(term == "expansion_3g") %>%
+    mutate(outcome = outcome_labels[.y])
+})
+
+
+# Confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)
+interval2 <- -qnorm((1 - 0.95) / 2)
+
+
+coef_df_empower <- coef_df_empower %>%
+  mutate(
+    estimate = estimate,
+    std.error = std.error,
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+## plot contraception knowledge 
+empower_plot <- coef_df_empower %>%
+  ggplot(aes(x = outcome, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5), color = "darkblue") +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8, color = "darkblue") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Empowerment mechanism", 
+    subtitle = "Measured as women alone making decision alone",
+    x = "Outcome",
+    y = "Percentage Point Change",
+    color = "Method",
+    shape = "Method"
+  ) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") 
+
+
+# Save plot
+ggsave(plot = empower_plot,
+       filename = here("impacts_demographic", "figures", "empower_plot.png"),
+       height = 4, width = 11, bg = "white")
+```
+
+
+```{r}
+
+birth_panel_restricted_special <- birth_panel_restricted %>% 
+  filter(!is.na(v743a)) %>% 
+  mutate(
+    v743a = ifelse(v743a %in% c(1:2), 1, 0),
+    v743b     = ifelse(v743b %in% c(1:2), 1, 0),
+    v743d = ifelse(v743d %in% c(1:2), 1, 0),
+    v743f = ifelse(v743f %in% c(1:2), 1, 0),
+    v739 = ifelse(v739 %in% c(1:2), 1, 0)
+  )
+
+
+outcomes <- c("v743a", "v743b", "v743d", "v743f", "v739")
+
+models <- map(outcomes, ~ feols(
+  as.formula(paste(.x, "~ expansion_3g + v190 + v106 + v158 + v159 +",
+                   "rain_wght_mean + proads + nl_mean_v_i + imr_mean + imr_wght + pop_share_covered_3g |",
+                   "v012 + v130 + gid_1")),
+  data = birth_panel_restricted_special %>% filter(year == 2013, pop_share_covered_3g < 0.1),
+  cluster = "v001"
+))
+
+names(models) <- outcomes
+
+outcome_labels <- c(
+  v743a = "Own health care",
+  v743b = "Large household purchases",
+  v743d = "Visits to family",
+  v743f = "Spend husband earnings",
+  v739 = "Spend own earnings"
+)
+
+coef_df_empower <- imap_dfr(models, ~ {
+  broom::tidy(.x) %>%
+    filter(term == "expansion_3g") %>%
+    mutate(outcome = outcome_labels[.y])
+})
+
+
+# Confidence intervals
+interval1 <- -qnorm((1 - 0.90) / 2)
+interval2 <- -qnorm((1 - 0.95) / 2)
+
+
+coef_df_empower <- coef_df_empower %>%
+  mutate(
+    estimate = estimate,
+    std.error = std.error,
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+## plot contraception knowledge 
+empower_plot <- coef_df_empower %>%
+  ggplot(aes(x = outcome, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high), size = 1.3, position = position_dodge(width = 0.5), color = "darkblue") +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high),
+                  position = position_dodge(width = 0.5),
+                  shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8, color = "darkblue") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Empowerment mechanism", 
+    subtitle = "Measured as women alone making decision alone",
+    x = "Outcome",
+    y = "Percentage Point Change",
+    color = "Method",
+    shape = "Method"
+  ) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") 
+
+
+# Save plot
+ggsave(plot = empower_plot,
+       filename = here("impacts_demographic", "figures", "empower_plot_alt.png"),
+       height = 4, width = 11, bg = "white")
+```
+
+```{r}
+birth_panel_restricted_special %>% 
+  count(v739)
+```
+

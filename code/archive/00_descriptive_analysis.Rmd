@@ -1,0 +1,207 @@
+---
+title: "DGG Paper"
+author: Casey Breen
+---
+
+Summary: Construct descriptive figures for paper 
+
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+
+## ng 2018 
+birth_data <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA"))
+
+## individual data 
+individual_data <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA"))
+
+ng_covariates <- read_csv(here("impacts_demographic", "data", "1_covariables_0919_NGA.csv"))
+
+ng_covariates <- ng_covariates %>% 
+  filter(dhscc == "NG") %>% 
+  filter(collection_year == 2018)
+```
+
+
+```{r}
+## mobile coverage 
+coverage_data <- read_csv(here("mobile_coverages", "out", "coverage_indicators_allyears.csv"))
+
+## data 
+coverage_data %>% 
+  filter(dhsyear == 2018 & dhscc == "NG") %>% 
+  count(v001, year)
+
+coverage_data %>% 
+  filter(dhsyear == 2018) %>% 
+  filter(year == 2018 & v001 == 2)
+```
+
+```{r}
+expansion_3g_plot <- coverage_data %>% 
+  filter(dhsyear == 2018 & dhscc == "NG") %>% 
+  filter(source == "gsma") %>% 
+  group_by(year) %>% 
+  summarize(`Population Covered` = mean(`pop_share_covered_3G+`),
+            `Area Covered` = mean(`area_share_covered_3G+`)) %>% 
+  pivot_longer(cols = c(`Population Covered`, `Area Covered`), names_to = "indicator", values_to = "coverage") %>% 
+  ggplot(aes(x = year, y = coverage*100, color = indicator, fill = indicator)) + 
+ # geom_ribbon(aes(ymin = 0, ymax = coverage), alpha = 0.2) + 
+  geom_line() + 
+  geom_point(shape = 21, size = 3, stroke = 1, fill = "white") +
+  cowplot::theme_cowplot() + 
+  ylim(0, 100) + 
+  scale_x_continuous(breaks = 2010:2022) + 
+  labs(x = "Year",
+       y = "Coverage",
+       color = "Indicator",
+       fill = "Indicator") +
+  scale_color_manual(values = c("Population Covered" = "darkblue", "Area Covered" = "darkorange")) + 
+  theme(legend.position = "bottom") + 
+  labs(y = "Coverage (%)",
+       x = "Year",
+       color = "")
+
+## alt version 
+expansion_3g_plot_alt <- coverage_data %>% 
+  filter(year %in% 2013:2018) %>% 
+  filter(dhsyear == 2018 & dhscc == "NG") %>% 
+  filter(source == "gsma") %>% 
+  group_by(year) %>% 
+  summarize(`Population Covered` = mean(`pop_share_covered_3G+`),
+            `Area Covered` = mean(`area_share_covered_3G+`)) %>% 
+  pivot_longer(cols = c(`Population Covered`, `Area Covered`), names_to = "indicator", values_to = "coverage") %>% 
+  filter(indicator == "Population Covered") %>% 
+  ggplot(aes(x = year, y = coverage*100, color = "black", fill = "black")) + 
+ # geom_ribbon(aes(ymin = 0, ymax = coverage), alpha = 0.2) + 
+  geom_line(color = "darkblue") + 
+  geom_point(shape = 21, size = 3, stroke = 1, fill = "white", color = "darkblue") +
+  geom_text(aes(x = year, y = coverage*100 + 3, label = round(coverage*100, 0)), color = "black") + 
+  cowplot::theme_cowplot() + 
+ # ylim(0, 100) + 
+  scale_x_continuous(breaks = 2013:2018) + 
+  labs(x = "Year",
+       y = "Coverage",
+       color = "Indicator",
+       fill = "Indicator") +
+  theme(legend.position = "bottom") + 
+  labs(y = "Coverage (%)",
+       x = "Year",
+       color = "")
+
+ggsave(plot = expansion_3g_plot, filename = here("impacts_demographic", "figures", "expansion_3g_plot.png"), bg = "white", height = 5, width = 7)
+ggsave(plot = expansion_3g_plot_alt, filename = here("impacts_demographic", "figures", "expansion_3g_plot_alt.png"), bg = "white", height = 5, width = 7)
+
+```
+
+
+
+```{r}
+results_person_years <- list()
+
+for (year in 2010:2018) {
+  
+  diff <-  2018 - year
+  individual_data$interview_date_adj = 1900 + (individual_data$v008 - 1) / 12 - 2018 + (1/24)## add on additional 2 weeks 
+  
+  # Create a simpler way to assign age groups
+  if (year != 2018) {
+    result <- individual_data %>%
+      mutate(v012 = v012 - diff) %>% 
+      filter(v012 >= 15 & v012 <= 49) %>%
+      mutate(age_group = case_when(
+        v012 >= 15 & v012 <= 19 ~ "15-19",
+        v012 >= 20 & v012 <= 24 ~ "20-24",
+        v012 >= 25 & v012 <= 29 ~ "25-29",
+        v012 >= 30 & v012 <= 34 ~ "30-34",
+        v012 >= 35 & v012 <= 39 ~ "35-39",
+        v012 >= 40 & v012 <= 44 ~ "40-44",
+        v012 >= 45 & v012 <= 49 ~ "45-49",
+      )) %>%
+      group_by(age_group) %>%
+      summarise(count = sum(v005/100000), .groups = "drop") %>% 
+      mutate(year = year)
+  } else
+  {
+    result <- individual_data %>%
+      mutate(v012 = v012 - diff) %>% 
+      filter(v012 >= 15 & v012 <= 49) %>%
+      mutate(age_group = case_when(
+        v012 >= 15 & v012 <= 19 ~ "15-19",
+        v012 >= 20 & v012 <= 24 ~ "20-24",
+        v012 >= 25 & v012 <= 29 ~ "25-29",
+        v012 >= 30 & v012 <= 34 ~ "30-34",
+        v012 >= 35 & v012 <= 39 ~ "35-39",
+        v012 >= 40 & v012 <= 44 ~ "40-44",
+        v012 >= 45 & v012 <= 49 ~ "45-49",
+      )) %>%
+      group_by(age_group) %>%
+      summarise(count = sum(v005*interview_date_adj/100000), .groups = "drop") %>% 
+      mutate(year = year)
+  }
+  
+  
+  results_person_years[[year]] <- result
+  
+} 
+
+results_person_years <- results_person_years %>% 
+  bind_rows() 
+```
+
+
+
+```{r}
+# Convert B3 (CMC birth date) to year and filter for 2010-2015
+births <- birth_data %>%
+  mutate(year = 1900 + floor((b3 - 1) / 12)) %>%
+  mutate(age_at_birth = v012 - (2018 - year)) %>% 
+  mutate(age_group = case_when(
+      age_at_birth >= 15 & age_at_birth <= 19 ~ "15-19",
+      age_at_birth >= 20 & age_at_birth <= 24 ~ "20-24",
+      age_at_birth >= 25 & age_at_birth <= 29 ~ "25-29",
+      age_at_birth >= 30 & age_at_birth <= 34 ~ "30-34",
+      age_at_birth >= 35 & age_at_birth <= 39 ~ "35-39",
+      age_at_birth >= 40 & age_at_birth <= 44 ~ "40-44",
+      age_at_birth >= 45 & age_at_birth <= 49 ~ "45-49",
+    )) %>%
+  filter(year >= 2010 & year <= 2018) %>%
+  group_by(year, age_group) %>%
+  summarise(total_births =  sum(v005/100000), .groups = "drop")
+
+tfr_results <- results_person_years %>% 
+  left_join(births) %>% 
+  mutate(total_births = case_when(
+    is.na(total_births) ~ 0,
+    TRUE ~ total_births
+  )) %>% 
+  mutate(asfr = total_births / count) %>% 
+  group_by(year) %>% 
+  summarize(tfr = 5 * sum(asfr)) 
+
+
+tfr_results %>% 
+  group_by(year) %>% 
+  summarize(mean(tfr))
+```
+
+
+```{r}
+tfr_aggregate <- tfr_results %>% 
+  group_by(year) %>% 
+  summarize(tfr = mean(tfr))
+
+tfr_plot <- tfr_aggregate %>% 
+  ggplot(aes(x = year, y = tfr)) + 
+    geom_line() + 
+  geom_point(size = 3, fill = "white", shape = 21) + 
+  cowplot::theme_cowplot() + 
+  geom_text(aes(label = round(tfr, 2), y = tfr + 0.3)) + 
+  ylim(0, NA)
+
+ggsave(plot = tfr_plot, filename = here("impacts_demographic", "figures", "tfr_plot.png"), bg = "white", height = 5, width = 7)
+```
+

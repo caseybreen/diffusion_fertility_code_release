@@ -1,0 +1,520 @@
+---
+title: "Individual Predictions"
+author: Casey Breen
+---
+
+Summary: fit two-way-fixed-effects models (TWFE) estimating 
+
+```{r}
+## library packages 
+library(here)
+source(here("code", "helpers.R"))
+
+## birth panel 
+birth_panel <- read_csv(here("data", "birth_panel.csv"))
+```
+
+```{r}
+## Filter to pop share covered is 0 
+birth_panel_filtered <- birth_panel %>%
+  filter(year == 2010, pop_share_covered_3g == 0) %>%
+  distinct(v001) %>%
+  inner_join(birth_panel, by = "v001") 
+
+birth_panel_filtered <- birth_panel_filtered %>% 
+  mutate(islam = case_when(
+    v130 == 3 ~ 1,
+    TRUE ~ 0)) 
+
+## birth panel filtered 
+birth_panel_filtered <- birth_panel_filtered %>%
+  arrange(caseid, year) %>%
+  group_by(caseid) %>%
+  mutate(
+    pop_share_covered_3g_lag1 = lag(pop_share_covered_3g, n = 1),
+    pop_share_covered_2g_lag1 = lag(pop_share_covered_2g, n = 1),
+    birth_lag1 = lag(birth, n = 1)
+  ) %>% ungroup()
+
+## restrict to people who lived in same house during window 
+birth_panel_filtered <- birth_panel_filtered %>% 
+  filter(year %in% 2010:2018) %>% 
+  filter(v104 > 5) ## number of years in the same house 
+
+## birth panel filtered 
+birth_panel_filtered <- birth_panel_filtered %>%
+  mutate(
+    pop_share_covered_3g_lag1 = case_when(
+      is.na(pop_share_covered_3g_lag1) ~ 0,
+      TRUE ~ pop_share_covered_3g_lag1
+    ),
+    pop_share_covered_2g_lag1 = case_when(
+      is.na(pop_share_covered_2g_lag1) ~ 0,
+      TRUE ~ pop_share_covered_2g_lag1
+    )
+  )
+
+birth_panel_filtered <- birth_panel_filtered %>% 
+  mutate(early_birth = case_when(
+    births_2010_2011 >= 1 ~ 1,
+    TRUE ~ 0)) %>% 
+  mutate(year_X_early_birth = paste0(year, "_", early_birth))
+```
+
+
+```{r}
+# Model 1: No fixed effects or controls
+lpm_model1 <- feols(
+  birth ~ pop_share_covered_3g_lag1,
+  data = birth_panel_filtered,
+  cluster = ~v001)
+
+# Model 2: Cluster, year, age, and parity fixed effects
+lpm_model2 <- feols( 
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +      ## mobile coverage 
+    num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered,
+  cluster = ~v001)
+
+# Model 3: Add individual controls
+lpm_model3 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +     ## mobile coverage 
+    num_prev_children_pre_window +  
+    v190 +    ## wealth quantile
+    v714 +    ## currently working
+    v106 +    ## educ level
+    islam +   ## islam variable 
+    v158 +    ## frequency of listening to the radio§
+    v159,     ## Frequency of watching television     
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered,
+  cluster = ~v001)
+
+# Model 4: Add individual controls
+lpm_model4 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +      ## mobile coverage 
+     num_prev_children_pre_window + 
+    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered,
+  cluster = ~v001)
+
+# Model 5: Add individual controls
+lpm_model5 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +      ## mobile coverage 
+    num_prev_children_pre_window  +      ## parity controls (births prior to window, sum births in window at time t-1) 
+    v190 +    ## wealth quantile
+    v714 +    ## currently working
+    v106 +    ## educ level
+    islam +   ## Islam variable 
+    v158 +    ## frequency of listening to the radio
+    v159 +    ## Frequency of watching television 
+    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
+  fixef = c("v012", "v001", "year", "year_X_early_birth"), ## age, cluster, year FEs 
+  data = birth_panel_filtered,
+  cluster = ~v001)
+
+# Model 6: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model6 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + 
+     +  ## parity controls  
+    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
+  fixef = c("caseid", "year", "year_X_early_birth"),
+  data = birth_panel_filtered,
+  cluster = ~v001
+) 
+
+
+# Extract and label model coefficients
+coef_model1 <- broom::tidy(lpm_model1, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "No Controls")
+coef_model2 <- broom::tidy(lpm_model2, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "Baseline", controls = "No")
+coef_model3 <- broom::tidy(lpm_model3, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "Baseline", controls = "Yes")
+coef_model4 <- broom::tidy(lpm_model4, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "+ Time-varying Controls", controls = "No")
+coef_model5 <- broom::tidy(lpm_model5, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "+ Time-varying Controls", controls = "Yes")
+coef_model6 <- broom::tidy(lpm_model6, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(model = "+ Time-varying Controls + Mother FEs", controls = "Yes")
+
+
+model_df <- coef_model2 %>% 
+  bind_rows(coef_model3) %>% 
+  bind_rows(coef_model4) %>% 
+  bind_rows(coef_model5) %>% 
+  bind_rows(coef_model5) %>% 
+  bind_rows(coef_model6) %>% 
+  filter(term == "pop_share_covered_3g_lag1")
+
+## baseline fertility 
+baseline = 17
+
+model_df <- model_df %>%
+  mutate(
+    estimate = estimate *100/ baseline,
+    std.error = std.error *100/ baseline,
+    CI_90_low = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  ) %>% 
+  mutate(
+    model = factor(model, levels = c(
+      "Baseline", 
+      "+ Time-varying Controls",
+      "+ Time-varying Controls + Mother FEs"
+    ))
+  )
+
+effect_plot <- model_df %>%
+  filter(controls == "No" | model == "+ Time-varying Controls + Mother FEs" & controls == "Yes") %>% 
+  ggplot(aes(x = model, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high, color = model), size = 1.3, position = position_dodge(width = 0.5)) +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high, color = model, shape = model),
+                  position = position_dodge(width = 0.5), size = 1.5, stroke = 1.5, fill = "white", linewidth = .8) +
+  scale_y_continuous(labels = function(x) x * 100) + 
+  scale_shape_manual(values = c("Baseline" = 21, "+ Time-varying Controls" = 22, "+ Time-varying Controls + Mother FEs" = 23)) +  # ◯ and ⬜
+  labs(x = "",
+    y = "Birth Probability Change (%)",
+    color = "Individual-level Controls",
+    shape = "Individual-level Controls"
+  ) +
+  cowplot::theme_cowplot() +
+  scale_color_manual(values = cud)+ 
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") + 
+  theme_demography() + 
+  # scale_x_discrete(expand = expansion(mult = c(02, 0.2))) + 
+  theme(
+  axis.text.x = element_text(face = "bold", colour = "black", size = 11)) + 
+  annotate("text", x = 0.6, y = 0.005, label = "No 3G Expansion", size = 4, hjust = 0, color = "darkgrey")
+
+effect_plot_appendix <- model_df %>%
+  ggplot(aes(x = model, y = estimate)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high, color = controls), size = 1.3, position = position_dodge(width = 0.3)) +
+  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high, color = controls, shape = model),
+                  position = position_dodge(width = 0.3), size = 1.5, stroke = 1.5, fill = "white", linewidth = .8) +
+  scale_y_continuous(labels = function(x) x * 100) + 
+  scale_shape_manual(values = c("Baseline" = 21, "+ Time-varying Controls" = 22, "+ Time-varying Controls + Mother FEs" = 23), guide = "none") +  # ◯ and ⬜
+  labs(
+    x = "",
+    y = "Birth Probability Change (%)",
+    color = "Individual-level Controls",
+    shape = "Individual-level Controls"
+  ) +
+  cowplot::theme_cowplot() +
+  scale_color_manual(values = cud)+ 
+  theme(legend.position = "bottom") + 
+  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") + 
+  theme_demography() + 
+  theme(
+  axis.text.x = element_text(face = "bold", colour = "black", size = 11)) + 
+  annotate("text", x = 0.6, y = 0.005, label = "No 3G Expansion", size = 4, hjust = 0, color = "darkgrey")
+ 
+effect_plot_appendix
+
+# Save plots
+ggsave(plot = effect_plot, filename = here("figures", "effect_plot.png"),
+       bg = "white", height = 4, width = 9)
+
+ggsave(plot = effect_plot_appendix, filename = here("figures", "effect_plot_appendix.png"),
+       bg = "white", height = 4, width = 9)
+```
+
+```{r}
+modelsummary(
+  list(
+    "Model 1" = lpm_model1,
+    "Model 2" = lpm_model2,
+    "Model 3" = lpm_model3,
+    "Model 4" = lpm_model4,
+    "Model 5" = lpm_model5,
+    "Model 6" = lpm_model6
+  ),
+  siunitx = FALSE,
+  stars = TRUE,
+  output = "../figures/main_result.tex"
+)
+```
+
+
+## Effect heterogeneity
+
+
+```{r}
+## ---- Effect heterogeneity by nightlights (2010) ----
+
+nl_classification <- birth_panel_filtered %>%
+  filter(year == 2010) %>%
+  group_by(v001) %>%
+  summarize(nl_2010 = first(nl_mean_wght)) %>%
+  mutate(nl_group = as.factor(ntile(nl_2010, 3)))
+
+birth_panel_filtered <- birth_panel_filtered %>%
+  distinct(v001) %>%
+  inner_join(nl_classification, by = "v001") %>%
+  inner_join(birth_panel_filtered, by = "v001")
+
+lpm_model_nl <- feols(
+  birth ~ pop_share_covered_3g_lag1:nl_group + pop_share_covered_2g_lag1 +
+    num_prev_children_pre_window + v190 + v714 + v106 + islam + v158 + v159,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered,
+  cluster = ~v001
+)
+
+coef_df_nl <- broom::tidy(lpm_model_nl) %>%
+  filter(str_detect(term, "pop_share_covered_3g_lag1:nl_group")) %>%
+  mutate(
+    subgroup = case_when(
+      str_detect(term, "nl_group1") ~ "Low",
+      str_detect(term, "nl_group2") ~ "Medium",
+      str_detect(term, "nl_group3") ~ "High"
+    ),
+    subgroup = factor(subgroup, levels = c("Low", "Medium", "High")),
+    panel = "Nightlight Intensity (2010)"
+  )
+
+## ---- Effect heterogeneity by mobile phone ownership ----
+
+lpm_model_phone <- feols(
+  birth ~ as.factor(v169a):pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+    v190 + v714 + v106 + v130 + v158 + v159 + num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% filter(year %in% 2010:2018),
+  cluster = ~v001
+)
+
+coef_df_phone <- broom::tidy(lpm_model_phone) %>%
+  filter(term %in% c(
+    "as.factor(v169a)0:pop_share_covered_3g_lag1",
+    "as.factor(v169a)1:pop_share_covered_3g_lag1"
+  )) %>%
+  mutate(
+    subgroup = case_when(
+      str_detect(term, "v169a\\)0") ~ "No Mobile Phone",
+      str_detect(term, "v169a\\)1") ~ "Owns Mobile Phone"
+    ),
+    subgroup = factor(subgroup, levels = c("No Mobile Phone", "Owns Mobile Phone")),
+    panel = "Phone Ownership"
+  )
+
+## ---- Effect heterogeneity by marital status ----
+
+lpm_mono <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+    v190 + v714 + v106 + as.factor(v130) + v158 + v159 + num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% filter(v505 == 0),
+  cluster = ~v001
+)
+
+lpm_poly <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+    v190 + v714 + v106 + as.factor(v130) + v158 + v159 + num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% filter(v505 %in% 1:12),
+  cluster = ~v001
+)
+
+coef_df_marriage <- bind_rows(
+  broom::tidy(lpm_mono) %>% mutate(subgroup = "Monogamous"),
+  broom::tidy(lpm_poly) %>% mutate(subgroup = "Polygynous")
+) %>%
+  filter(term == "pop_share_covered_3g_lag1") %>%
+  mutate(
+    subgroup = factor(subgroup, levels = c("Polygynous", "Monogamous")),
+    panel = "Union Type"
+  )
+
+## ---- Effect heterogeneity by North/South ----
+
+birth_panel_filtered <- birth_panel_filtered %>%
+  mutate(north_south = case_when(
+    v024 %in% c(1, 2, 3) ~ "North",
+    v024 %in% c(4, 5, 6) ~ "South",
+    TRUE ~ NA_character_
+  ))
+
+lpm_north <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+    v190 + v714 + v106 + v130 + v158 + v159 + num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% filter(north_south == "North"),
+  cluster = ~v001
+)
+
+lpm_south <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+    v190 + v714 + v106 + v130 + v158 + v159 + num_prev_children_pre_window,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% filter(north_south == "South"),
+  cluster = ~v001
+)
+
+coef_df_region <- bind_rows(
+  broom::tidy(lpm_north) %>% mutate(subgroup = "Northern Nigeria"),
+  broom::tidy(lpm_south) %>% mutate(subgroup = "Southern Nigeria")
+) %>%
+  filter(term == "pop_share_covered_3g_lag1") %>%
+  mutate(
+    subgroup = factor(subgroup, levels = c("Southern Nigeria", "Northern Nigeria")),
+    panel = "Geography"
+  )
+
+## ---- Combine and plot ----
+
+coef_all <- bind_rows(coef_df_nl, coef_df_phone, coef_df_marriage, coef_df_region) %>%
+  mutate(
+    CI_90_low  = estimate - std.error * interval1,
+    CI_90_high = estimate + std.error * interval1,
+    CI_95_low  = estimate - std.error * interval2,
+    CI_95_high = estimate + std.error * interval2
+  )
+
+heterogeneity_plot <- ggplot(coef_all, aes(x = estimate, y = subgroup)) +
+  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
+  geom_linerange(aes(xmin = CI_90_low, xmax = CI_90_high),
+                 lwd = 1.5, colour = 'grey40') +
+  geom_pointrange(aes(xmin = CI_95_low, xmax = CI_95_high),
+                  size = 1.3, lwd = 1, fatten = 3, shape = 21,
+                  colour = 'grey40', fill = 'white') +
+  facet_wrap(~panel, scales = "free_y", ncol = 1) +
+  scale_x_continuous(labels = function(x) x * 100) +
+  labs(x = "Effect of 3G Expansion on Birth Probability\n(Percentage Point Change)", y = "") +
+  cowplot::theme_cowplot() +
+  theme_demography() + 
+  theme(
+    strip.background = element_rect(fill = "white", color = "black", linewidth = 0.8),
+    strip.text = element_text(size = 11, face = "bold", color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    panel.background = element_rect(fill = "#f9f9f9", color = NA),
+    panel.grid = element_line(color = "grey95"),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "bottom",
+    legend.justification = "center",  # centers the whole legend box
+    legend.title = element_text(size = 13, hjust = 0.5, vjust = 1, margin = margin(b = 4)),
+    legend.text = element_text(size = 11)
+  ) 
+
+heterogeneity_plot
+
+ggsave(
+  plot = heterogeneity_plot,
+  filename = here("figures", "effect_heterogeneity_combined.png"),
+  height = 8, width = 7, bg = "white"
+)
+```
+
+
+
+
+
+## Mother Fe Models 
+
+```{r}
+# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+lpm_model_individual_fe1 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + 
+    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
+    fixef = c("caseid", "year"),
+  data = birth_panel_filtered,
+  cluster = ~v001
+) 
+
+# Model 2: Add 2G coverage, drop age FE to match original structure
+lpm_model_individual_fe2 <- feols(
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g  + 
+    nl_mean_wght_v_i + gdp_wght  + temp_wght_mean + rain_wght_mean,
+    fixef = c("caseid", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered %>% 
+    filter(num_prev_children_pre_window == 0),
+  cluster = ~v001
+)
+
+# Display table
+modelsummary(
+  list(
+    "Model 1" = lpm_model_individual_fe1,
+    "Model 2" = lpm_model_individual_fe2
+  ),
+  stars = TRUE,
+  output = "latex_tabular"
+)
+```
+## Event Study 
+
+```{r}
+## create dichotomous treatment 
+birth_panel_filtered <- birth_panel_filtered %>%
+   group_by(v001) %>%
+   mutate(first3g = ifelse(any(pop_share_covered_3g > 0),
+                                 min(year[pop_share_covered_3g > 0]), NA_integer_)) %>%
+   ungroup()
+
+
+# 1) First 3G year per cluster (NA = never treated → valid controls)
+birth_panel_es <- birth_panel_filtered %>%
+  mutate(rel_time = year - first3g,
+         rel_time_binned = case_when(
+           rel_time <= -5 ~ -5,
+           rel_time >= 5  ~ 5,
+           TRUE ~ rel_time
+         ))
+
+## es model controls 
+es_model_controls <- feols(
+  birth ~ sunab(first3g, rel_time_binned) +
+    num_prev_children_pre_window + year_X_early_birth +   # parity controls
+    v190 + v714 + v106 + islam + v158 + v159 +  v012   |   # macro/time-varying
+    v001 + year,                                            # fixed effects
+  cluster = ~v001,
+  data = birth_panel_es)
+
+# Extract coefficients and CIs from model
+es_df <- broom::tidy(es_model_controls, conf.int = TRUE) %>%
+  filter(grepl("^rel_time_binned", term)) %>%                # keep only event-time terms
+  mutate(event_time = as.numeric(gsub(".*\\[(.*)\\].*", "\\1", term)))
+
+# If you already have a tidy df like the one you pasted:
+es_df <- es_df %>%                                    # or broom::tidy(es_model_controls, conf.int=TRUE)
+  filter(str_detect(term, "^rel_time_binned::")) %>%
+  mutate(
+    event_time = suppressWarnings(as.integer(str_replace(term, "^.*::", "")))
+  ) %>%
+  arrange(event_time)
+
+event_study <- es_df %>% 
+  add_row(estimate = 0, event_time = -1) %>% 
+  ggplot(aes(x = event_time, y = estimate)) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0, color = "darkred", linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  labs(
+   # title = "Event study (Sun and Abraham)",
+    x = "Relative Time (Years)", 
+    y = "Coefficient (95% CI)"
+  ) +
+  scale_x_continuous(breaks = -5:6) +
+  theme_cowplot() + 
+  theme(panel.grid.minor = element_line(color = "grey94"))
+
+# Save plot
+ggsave(
+  plot = event_study,
+  filename = here("figures", "event_study.png"),
+  height = 4, width = 7, bg = "white"
+)
+
+event_study
+```
+
+
+
+

@@ -1,0 +1,110 @@
+---
+title: "Expansion 3G plot"
+author: Casey Breen
+---
+
+Summary: Create figure with 3g expansion in Nigeria 
+
+```{r}
+## Library packages 
+library(here)
+source(here("code", "helpers.R"))
+
+## Birth panel 
+mobile_coverage <- read_csv( here("data", "ng_adm0_coverage.csv"))
+
+## birth panel 
+birth_panel <- read_csv(here("data", "birth_panel.csv"))
+```
+
+## create plot 
+
+```{r}
+## Reshape data 
+mobile_coverage_long <- mobile_coverage %>% 
+  pivot_longer(-share_type) %>% 
+  filter(name != "...1") %>% 
+  mutate(year = sub('.*(\\d{4}).*', '\\1', name)) %>% 
+  mutate(type = case_when(
+    share_type == "pop_share" ~ "Population",
+    share_type == "area_share" ~ "Land Area"
+  )) %>% 
+  mutate(year = as.numeric(year))
+```
+
+
+## Visualize 
+
+```{r}
+## Visualize plot 
+expansion_3g_plot <- mobile_coverage_long %>% 
+  filter(year %in% 2010:2018) %>% 
+  mutate(label = if_else(year == max(year), as.character(type), NA_character_)) %>%
+  ggplot(aes(x = year, y = value * 100, color = type, fill = type, shape = type)) + 
+  geom_line() + 
+  geom_point(size = 3, stroke = 1, fill = "white") +
+  geom_text(aes(label = round(value * 100, 0)), vjust = -1.5, size = 4) +
+  geom_text_repel(aes(label = label),
+                  nudge_x = .85,
+                  na.rm = TRUE,
+                  segment.color = NA) + 
+  cowplot::theme_cowplot() +
+  scale_x_continuous(breaks = 2010:2018) +
+  scale_color_manual(values = c("Population" = "darkblue", "Land Area" = "#CC6600")) +
+  scale_fill_manual(values = c("Population" = "darkblue", "Land Area" = "#CC6600")) +
+  scale_shape_manual(values = c("Population" = 21, "Land Area" = 23)) +
+  labs(x = "Year", y = "Coverage (%)", color = NULL, fill = NULL, shape = NULL) +
+  theme(legend.position = "none") +
+  ylim(0, 66) + 
+  theme(axis.title.y = element_text(face = "bold", colour = "black"),
+        axis.title.x = element_text(face = "bold", colour = "black"))
+
+# Save plot
+ggsave(plot = expansion_3g_plot,
+       filename = here("figures", "expansion_3g_plot.png"),
+       height = 4, width = 7.3, bg = "white")
+```
+
+
+
+```{r}
+# Create 5 bins: [0–20%), [20–40%), ..., [80–100%)x
+birth_panel_filtered <- birth_panel %>%
+  mutate(coverage_bin = cut(
+    pop_share_covered_3g,
+    breaks = seq(0, 1, by = 0.2),
+    include.lowest = TRUE,
+    right = FALSE,
+    labels = c("0–20%", "20–40%", "40–60%", "60–80%", "80–100%")))
+
+# Summarize ownership and 3G by bin 
+summary_by_bin <- birth_panel_filtered %>%
+  filter(year == 2018, !is.na(pop_share_covered_3g)) %>%
+  group_by(coverage_bin) %>%
+  summarize(
+    mean_phone_ownership = mean(v169a, na.rm = TRUE), 
+    n = n(),
+    mean_3G_coverage = mean(pop_share_covered_3g, na.rm = TRUE))
+
+
+# Plot
+mobile_phone_ownership_by_3g_coverage <- ggplot(summary_by_bin, aes(x = coverage_bin, y = mean_phone_ownership)) +
+  geom_col(fill = "lightgrey", color = "black") +
+  geom_text(aes(label = scales::percent(mean_phone_ownership, accuracy = 1)), 
+            vjust = -0.5, size = 4) +
+  ylim(0, 1) +
+  labs(
+    x = "3G Coverage (Cluster Level)",
+    y = "Mean Mobile Phone Ownership"
+  ) +
+  cowplot::theme_cowplot()
+
+
+# Save plot
+ggsave(plot = mobile_phone_ownership_by_3g_coverage,
+       filename = here("figures", "mobile_phone_ownership_by_3g_coverage.png"),
+       height = 4, width = 7, bg = "white")
+```
+
+
+

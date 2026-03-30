@@ -1,0 +1,95 @@
+---
+title: "Ideal family size"
+author: Casey Breen
+---
+
+```{r}
+## library packages 
+library(here)
+source(here("code", "helpers.R"))
+
+## IPUMS-DHS data
+dhs_data <- read_csv(here("data", "idhs_00002.csv"))
+```
+
+
+```{r}
+dhs_data <- dhs_data %>%
+  mutate(age_category = case_when(
+    AGE >= 15 & AGE <= 19 ~ "15–19",
+    AGE >= 20 & AGE <= 24 ~ "20–24",
+    AGE >= 25 & AGE <= 29 ~ "25–29",
+    AGE >= 30 & AGE <= 34 ~ "30–34",
+    AGE >= 35 & AGE <= 39 ~ "35–39",
+    AGE >= 40 & AGE <= 44 ~ "40–44",
+    AGE >= 45 & AGE <= 49 ~ "45–49",
+    TRUE ~ NA_character_
+  ))
+
+dsgn <- svydesign(
+  ids = ~PSU,
+  strata = ~STRATA,
+  weights = ~PERWEIGHT,
+  data = dhs_data %>%
+    filter(
+      YEAR %in% c(2013, 2018),
+      IDEALKID < 50
+    ),
+  nest = TRUE
+)
+
+
+est <- svyby(
+  ~IDEALKID,
+  ~YEAR + age_category,
+  design = dsgn,
+  FUN = svymean,
+  na.rm = TRUE
+) %>%
+  as_tibble() %>%
+  rename(
+    ideal_kids = IDEALKID,
+    se = se
+  ) %>%
+  mutate(
+    lwr = ideal_kids - 1.96 * se,
+    upr = ideal_kids + 1.96 * se
+  )
+
+est <- est %>%
+  mutate(age_num = as.numeric(factor(age_category,
+    levels = c(
+      "15–19","20–24","25–29","30–34",
+      "35–39","40–44","45–49"
+    )
+  )))
+
+ideal_family_size_plot <- ggplot(est, aes(x = age_num, y = ideal_kids, color = factor(YEAR))) +
+  geom_line(aes(group = YEAR)) +
+  geom_point() +
+  geom_ribbon(
+    aes(ymin = lwr, ymax = upr, fill = factor(YEAR), group = YEAR),
+    alpha = 0.2,
+    color = NA
+  ) +
+  scale_x_continuous(
+    breaks = unique(est$age_num),
+    labels = unique(est$age_category)
+  ) +
+  cowplot::theme_cowplot() +
+  labs(
+    x = "Age",
+    y = "Women's Ideal Number of Children",
+    color = "Year",
+    fill = "Year"
+  ) + 
+  scale_color_manual(values = cud) + 
+  scale_fill_manual(values = cud) + 
+  theme(legend.position = "bottom")
+
+# Save plot
+ggsave(plot = ideal_family_size_plot, filename = here("figures", "ideal_family_size_plot.png"),
+       bg = "white", height = 4, width = 7)
+
+```
+

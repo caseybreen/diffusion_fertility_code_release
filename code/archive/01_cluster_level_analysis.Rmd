@@ -1,0 +1,315 @@
+---
+title: "Cluster-level Analysis"
+author: Casey Breen
+---
+
+
+Summary: Analysis at cluster-level 
+
+
+```{r}
+## library packages 
+library(tidyverse)
+library(here)
+library(fixest)
+
+## ng 2018 
+birth_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2018.DTA"))
+birth_data_2013 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "birth_recode", "NG_2008.DTA"))
+
+## individual data 
+individual_data_2018 <- haven::read_dta(here("data", "national", "data_refresh", "dhs", "wave7", "nigeria_2018", "NGIR7BFL.DTA"))
+
+ng_covariates <- read_csv(here("impacts_demographic", "data", "1_covariables_0919_NGA.csv"))
+
+ng_covariates <- ng_covariates %>% 
+  filter(dhscc == "NG") %>% 
+  filter(collection_year == 2018)
+```
+
+
+```{r}
+## mobile coverage 
+coverage_data <- read_csv(here("mobile_coverages", "out", "coverage_indicators_allyears.csv"))
+
+## data 
+coverage_data %>% 
+  filter(dhsyear == 2018 & dhscc == "NG") %>% 
+  count(v001, year)
+
+coverage_data %>% 
+  filter(dhsyear == 2018) %>% 
+  filter(year == 2018 & v001 == 2)
+```
+
+
+## Cluster-level analysis 
+
+```{r}
+results_person_years <- list()
+
+for (year in 2010:2018) {
+  
+  diff = 2018 - year
+  
+  # Create a simpler way to assign age groups
+  results_person_years[[year]] <- individual_data %>%
+    mutate(v012 = v012 - diff) %>% 
+    filter(v012 >= 15 & v012 <= 49) %>%
+    mutate(age_group = case_when(
+      v012 >= 15 & v012 <= 19 ~ "15-19",
+      v012 >= 20 & v012 <= 24 ~ "20-24",
+      v012 >= 25 & v012 <= 29 ~ "25-29",
+      v012 >= 30 & v012 <= 34 ~ "30-34",
+      v012 >= 35 & v012 <= 39 ~ "35-39",
+      v012 >= 40 & v012 <= 44 ~ "40-44",
+      v012 >= 45 & v012 <= 49 ~ "45-49",
+    )) %>%
+    group_by(age_group, v001) %>%
+    summarise(count = n(), .groups = "drop") %>% 
+    mutate(year = year)
+  
+  
+} 
+
+results_person_years <- results_person_years %>% 
+  bind_rows() 
+```
+
+
+```{r}
+results_person_years <- list()
+
+for (year in 2010:2018) {
+  
+  diff <-  2018 - year
+  individual_data$interview_date_adj = 1900 + (individual_data$v008 - 1) / 12 - 2018 + (1/24)## add on additional 2 weeks 
+  
+  # Create a simpler way to assign age groups
+  if (year != 2018) {
+    result <- individual_data %>%
+      mutate(v012 = v012 - diff) %>% 
+      filter(v012 >= 15 & v012 <= 49) %>%
+      mutate(age_group = case_when(
+        v012 >= 15 & v012 <= 19 ~ "15-19",
+        v012 >= 20 & v012 <= 24 ~ "20-24",
+        v012 >= 25 & v012 <= 29 ~ "25-29",
+        v012 >= 30 & v012 <= 34 ~ "30-34",
+        v012 >= 35 & v012 <= 39 ~ "35-39",
+        v012 >= 40 & v012 <= 44 ~ "40-44",
+        v012 >= 45 & v012 <= 49 ~ "45-49",
+      )) %>%
+      group_by(age_group, v001) %>%
+      summarise(count = sum(v005/100000), .groups = "drop") %>% 
+      mutate(year = year)
+  } else
+  {
+    result <- individual_data %>%
+      mutate(v012 = v012 - diff) %>% 
+      filter(v012 >= 15 & v012 <= 49) %>%
+      mutate(age_group = case_when(
+        v012 >= 15 & v012 <= 19 ~ "15-19",
+        v012 >= 20 & v012 <= 24 ~ "20-24",
+        v012 >= 25 & v012 <= 29 ~ "25-29",
+        v012 >= 30 & v012 <= 34 ~ "30-34",
+        v012 >= 35 & v012 <= 39 ~ "35-39",
+        v012 >= 40 & v012 <= 44 ~ "40-44",
+        v012 >= 45 & v012 <= 49 ~ "45-49",
+      )) %>%
+      group_by(age_group, v001) %>%
+      summarise(count = sum(v005*interview_date_adj/100000), .groups = "drop") %>% 
+      mutate(year = year)
+  }
+  
+    results_person_years[[year]] <- result
+} 
+
+results_person_years <- results_person_years %>% 
+  bind_rows() 
+```
+
+
+
+```{r}
+# Convert B3 (CMC birth date) to year and filter for 2010-2015
+births <- birth_data %>%
+  mutate(year = 1900 + floor((b3 - 1) / 12)) %>%
+  mutate(age_at_birth = v012 - (2018 - year)) %>% 
+  mutate(age_group = case_when(
+      age_at_birth >= 15 & age_at_birth <= 19 ~ "15-19",
+      age_at_birth >= 20 & age_at_birth <= 24 ~ "20-24",
+      age_at_birth >= 25 & age_at_birth <= 29 ~ "25-29",
+      age_at_birth >= 30 & age_at_birth <= 34 ~ "30-34",
+      age_at_birth >= 35 & age_at_birth <= 39 ~ "35-39",
+      age_at_birth >= 40 & age_at_birth <= 44 ~ "40-44",
+      age_at_birth >= 45 & age_at_birth <= 49 ~ "45-49",
+    )) %>%
+  filter(year >= 2010 & year <= 2018) %>%
+  group_by(year, age_group, v001) %>%
+  summarise(total_births = sum(v005/100000), .groups = "drop")
+
+tfr_results <- results_person_years %>% 
+  left_join(births) %>% 
+  mutate(total_births = case_when(
+    is.na(total_births) ~ 0,
+    TRUE ~ total_births
+  )) %>% 
+  mutate(asfr = total_births / count) %>% 
+  group_by(year, v001) %>% 
+  summarize(tfr = 5 * sum(asfr)) 
+
+
+tfr_results %>% 
+  group_by(year) %>% 
+  summarize(mean(tfr))
+
+```
+
+```{r}
+birth_rate_new <- tfr_results %>% 
+  left_join(coverage_data %>% filter(source == "gsma") %>% filter(dhsyear == 2018), by = join_by(v001, year)) %>%
+  filter(year %in% 2013:2018)
+
+birth_rate_new <- birth_rate_new %>% 
+  left_join(ng_covariates)
+
+
+birth_rate_new %>% 
+  count(year, is.na(pop_share_covered_3G)) 
+
+model <- feols(tfr ~ pop_share_covered_3G  + year| 
+                  v001, data = birth_rate_new, cluster = "v001")
+
+
+# Display results
+summary(model)
+
+birth_rate_new %>% 
+  filter(!is.na(pop_share_covered_3G)) %>% 
+  summarize(cor(pop_share_covered_3G, tfr))
+```
+
+
+```{r}
+birth_rate_new %>% 
+  group_by(v001) %>% 
+  summarize(min(pop_share_covered_3G), max(pop_share_covered_3G))
+
+birth_rate_new <- birth_rate_new %>% 
+  mutate(pop_share_covered_3G_dummy = ifelse(pop_share_covered_3G > 0.3, 1, 0))
+
+birth_rate_new %>% 
+  select(year, tfr, pop_share_covered_3G_dummy, pop_share_covered_3G) %>% 
+  filter(!is.na(pop_share_covered_3G)) %>% 
+  group_by(year,  pop_share_covered_3G_dummy) %>% 
+  summarize(tfr = mean(tfr)) %>% 
+  ggplot(aes(x = year, y = tfr, color = as.factor(pop_share_covered_3G_dummy))) + 
+  geom_point() + 
+  geom_line() 
+
+birth_rate_new %>% 
+  group_by(v001) %>% 
+  filter(min(pop_share_covered_3G_dummy) == 0 & max(pop_share_covered_3G_dummy == 0)) %>% 
+  group_by(year) %>% 
+  summarize(mean(tfr))
+
+birth_rate_new %>% 
+  group_by(v001) %>% 
+  filter(min(pop_share_covered_3G_dummy) == 0 & max(pop_share_covered_3G_dummy == 1)) %>% 
+  group_by(year) %>% 
+  summarize(mean(tfr))
+```
+
+
+
+```{r}
+model <- feols(tfr ~ pop_share_covered_3G | year + v001, 
+               data = birth_rate_new, cluster = "v001")
+
+
+model <- feols(tfr ~ pop_share_covered_3G +  pop_share_covered_2g | year + v001, 
+               data = birth_rate_new, cluster = "v001")
+
+```
+
+
+
+```{r}
+birth_rate_new <- birth_rate_new %>%
+  mutate(year_trend = year - min(year))
+
+model <- feols(tfr ~ pop_share_covered_3G + 
+                 rain_mean + temp_mean + imr_mean + gdp_mean | year, 
+               data = birth_rate_new, cluster = "v001")
+
+
+model <- feols(tfr ~ pop_share_covered_3G + 
+                 rain_mean + temp_mean + imr_mean + gdp_mean | year, 
+               data = birth_rate_new, cluster = "v001")
+
+```
+
+```{r}
+birth_rate_new <- birth_rate_new %>%
+  mutate(treated = ifelse(year >= year_3G_rollout, 1, 0))
+
+did_model <- feols(tfr ~ treated | v001 + year, 
+                   data = birth_rate_new, cluster = "v001")
+
+summary(did_model)
+```
+
+
+
+```{r}
+did_model_1 <- feols(tfr ~ treated:post_treatment_period + area_share_covered_2G| v001 + year, 
+                   data = birth_rate_new, cluster = "v001")
+
+did_model_2 <- feols(tfr ~ treated:post_treatment_period | year + urban_rura + NL_mean + imr_mean , 
+                   data = birth_rate_new, cluster = "v001")
+
+```
+
+```{r}
+# Define the first year of 3G coverage in each cluster
+birth_rate_new <- birth_rate_new %>%
+  group_by(v001) %>%
+  mutate(year_3G_rollout = min(year[pop_share_covered_3G > 0.3], na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(event_time = year - year_3G_rollout)
+
+
+# Create the post-treatment period variable
+birth_rate_new <- birth_rate_new %>%
+  mutate(post_treatment_period = ifelse(year >= year_3G_rollout, 1, 0))
+
+# Create categorical variables for event time
+birth_rate_new <- birth_rate_new %>%
+  mutate(event_time_cat = case_when(
+    event_time <= -3 ~ "-3 or earlier",
+    event_time == -2 ~ "-2",
+    event_time == -1 ~ "-1",
+    event_time == 0  ~ "0",
+    event_time == 1  ~ "1",
+    event_time == 2  ~ "2",
+    event_time >= 3  ~ "3 or later"
+  ))
+
+# Convert to factor (reference category: "-3 or earlier")
+birth_rate_new$event_time_cat <- factor(birth_rate_new$event_time_cat, levels = c("-3 or earlier", "-2", "-1", "0", "1", "2", "3 or later"))
+
+# Estimate event study regression with TWFE
+event_study_model <- feols(tfr ~ i(event_time_cat, ref = "-3 or earlier") | v001 + year, 
+                           data = birth_rate_new, cluster = "v001")
+
+# Summarize results
+summary(event_study_model)
+
+# Plot event study results
+iplot(event_study_model, ref = "-3 or earlier", main = "Effect of 3G Rollout on Fertility")
+
+```
+
+
+
+

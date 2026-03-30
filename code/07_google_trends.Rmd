@@ -1,0 +1,148 @@
+---
+title: "Query google trends"
+author: Casey Breen
+---
+
+Summary: query google trends and normalize it 
+
+```{r}
+## library packages 
+library(here)
+source(here("code", "helpers.R"))
+```
+
+
+```{r}
+keywords <- c("postinor", "birth control", "iud", "depo")
+keywords2 <- c("postinor", "implant", "condom")
+
+res <- gtrends(keyword = keywords, geo = c("NG"), time = "2009-01-01 2018-01-01")
+res2 <- gtrends(keyword = keywords2, geo = c("NG"), time = "2009-01-01 2018-01-01")
+
+df_contraception <- bind_rows(
+  mutate(res$interest_over_time, source = "res"),
+  mutate(res2$interest_over_time, source = "res2")
+) %>%
+  arrange(keyword, date) %>%
+  group_by(keyword) %>%
+  mutate(
+    hits_roll52 = zoo::rollmean(hits, k = 12, fill = 0, align = "right")
+  ) %>%
+  ungroup() %>% 
+  mutate(hits_roll52 = hits_roll52/max(hits_roll52))
+
+# data for end labels
+df_labels_contraception <- df_contraception %>%
+  filter(!is.na(hits_roll52)) %>%
+  group_by(keyword) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+    mutate(date = as_datetime("2018-09-01")) %>% 
+  ungroup()
+
+contraception_fig <- df_contraception %>% 
+  filter(date > "2009-12-01") %>% 
+  ggplot(aes(x = date)) + 
+  geom_line(aes(y = hits_roll52, color = keyword), linewidth = 1) +
+  scale_color_manual(values = cud) +
+  labs(
+    x = "Date",
+    y = "Relative Search Intensity",
+    title = "Contraception"
+  ) +
+  cowplot::theme_cowplot() +
+  geom_text_repel(
+    data = df_labels_contraception,
+        fontface = "bold",
+  bg.color = "white",
+  bg.r = 0.1,
+    aes(
+      x = date ,   # push labels to right side
+      y = hits_roll52,
+      label = keyword,
+      color = keyword
+    ),
+    direction = "y",
+    hjust = 0,
+    segment.color = NA,
+    show.legend = FALSE
+  ) +
+  theme(legend.position = "NA")
+  
+```
+
+
+
+```{r}
+normative <- c("nuclear family", "big family", "small family", "family size", "child spacing")
+
+# keywords <- c("small family benefits", "small family lifestyle", "why have fewer children", "is large family good", "family size in nigeria")
+
+res_norm <- gtrends(keyword = normative, geo = c("NG"), time = "2010-01-01 2018-01-01")
+
+## df 
+df <- bind_rows(
+  mutate(res_norm$interest_over_time, source = "res"),
+) %>%
+  arrange(keyword, date) %>%
+  group_by(keyword) %>%
+  mutate(
+    hits_roll52 = zoo::rollmean(hits, k = 12, fill = 0, align = "right")
+  ) %>%
+  ungroup() %>% 
+    mutate(hits_roll52 = hits_roll52/max(hits_roll52))
+
+
+# data for end labels
+df_labels <- df %>%
+  filter(date > "2009-12-01") %>%
+  filter(!is.na(hits_roll52)) %>%
+  group_by(keyword) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+  mutate(date = as_datetime("2018-09-01")) %>% 
+  ungroup()
+
+normative_family_size_fig <- df %>% 
+  filter(date > "2009-12-01") %>% 
+  ggplot() + 
+  geom_line(aes(x = date, y = hits_roll52, color = keyword), linewidth = 1) +
+  scale_color_manual(values = cud) +
+  labs(
+    x = "Date",
+    y = "Relative Search Intensity",
+    title = "Family Size/Timing"
+  ) +
+  cowplot::theme_cowplot() +
+  geom_text_repel(
+    data = df_labels,
+    fontface = "bold",
+  bg.color = "white",
+  bg.r = 0.1,
+    aes(
+      x = date,
+      y = hits_roll52,
+      label = keyword,
+      color = keyword
+    ),
+    direction = "y",
+    hjust = 0,
+    segment.color = NA,
+    show.legend = FALSE
+  ) +
+  theme(legend.position = "NA")
+```
+
+
+## combine figures and plot 
+
+```{r}
+## plot fig 
+google_trends_plot <- cowplot::plot_grid(normative_family_size_fig, contraception_fig, ncol = 1)
+
+# Save plot
+ggsave(
+  plot = google_trends_plot,
+  filename = here("figures", "google_trends_plot.png"),
+  height = 8, width = 6, bg = "white")
+```
+
+
