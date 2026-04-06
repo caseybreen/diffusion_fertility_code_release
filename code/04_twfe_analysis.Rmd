@@ -117,8 +117,7 @@ lpm_model5 <- feols(
 
 # Model 6: LPM with individual (caseid) FE, cluster FE, year, age, parity
 lpm_model6 <- feols(
-  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + 
-     +  ## parity controls  
+  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + ## mobile coverage 
     nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
   fixef = c("caseid", "year", "year_X_early_birth"),
   data = birth_panel_filtered,
@@ -144,7 +143,6 @@ coef_model6 <- broom::tidy(lpm_model6, conf.int = TRUE, conf.level = 0.95) %>%
 model_df <- coef_model2 %>% 
   bind_rows(coef_model3) %>% 
   bind_rows(coef_model4) %>% 
-  bind_rows(coef_model5) %>% 
   bind_rows(coef_model5) %>% 
   bind_rows(coef_model6) %>% 
   filter(term == "pop_share_covered_3g_lag1")
@@ -220,9 +218,6 @@ effect_plot_appendix
 
 # Save plots
 ggsave(plot = effect_plot, filename = here("figures", "effect_plot.png"),
-       bg = "white", height = 4, width = 9)
-
-ggsave(plot = effect_plot_appendix, filename = here("figures", "effect_plot_appendix.png"),
        bg = "white", height = 4, width = 9)
 ```
 
@@ -411,43 +406,7 @@ ggsave(
 )
 ```
 
-
-
-
-
-## Mother Fe Models 
-
-```{r}
-# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
-lpm_model_individual_fe1 <- feols(
-  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1  + 
-    nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
-    fixef = c("caseid", "year"),
-  data = birth_panel_filtered,
-  cluster = ~v001
-) 
-
-# Model 2: Add 2G coverage, drop age FE to match original structure
-lpm_model_individual_fe2 <- feols(
-  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g  + 
-    nl_mean_wght_v_i + gdp_wght  + temp_wght_mean + rain_wght_mean,
-    fixef = c("caseid", "v001", "year", "year_X_early_birth"),
-  data = birth_panel_filtered %>% 
-    filter(num_prev_children_pre_window == 0),
-  cluster = ~v001
-)
-
-# Display table
-modelsummary(
-  list(
-    "Model 1" = lpm_model_individual_fe1,
-    "Model 2" = lpm_model_individual_fe2
-  ),
-  stars = TRUE,
-  output = "latex_tabular"
-)
-```
-## Event Study 
+## Abraham-Sun Event Study 
 
 ```{r}
 ## create dichotomous treatment 

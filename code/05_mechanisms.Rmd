@@ -125,7 +125,7 @@ modelsummary(
     "Employment probability" = model_employment
   ),
   stars = TRUE,
-  output = "../figures/mechanism_table.tex"
+  output = here("figures", "mechanism_table.tex")
 )
 ```
 
@@ -428,9 +428,8 @@ plot_contraception_knowledge <- coef_df %>%
     position = position_dodge(width = 0.5),
     shape = 21, size = 1.5, stroke = 1.5, fill = "white", linewidth = .8, color = "darkgreen"
   ) +
-  scale_y_continuous(limits = c(-.02, .1)) +
   labs(
-    title = "Contraception Knowlege",
+    title = "Contraception Knowledge",
     x = "Age Group",
     y = "Percentage Point Change",
     color = "Method", 

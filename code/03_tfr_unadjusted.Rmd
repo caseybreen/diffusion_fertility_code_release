@@ -25,7 +25,7 @@ coverage_data_cluster <- read_csv(here("data", "coverage_indicators_allyears.csv
 
 # Join microdata with 3G coverage data 
 ng_2018_women <- dhs_women_recode %>% 
-  left_join(coverage_data_cluster)
+  left_join(coverage_data_cluster, by = c("v000", "v001"))
 
 ```
 
@@ -76,8 +76,8 @@ nigeria_tfr_fig <- ggplot(cluster_TFR, aes(x = reorder(three_g, TFR), y = TFR, f
   ) +
   ggsci::scale_fill_lancet() + 
   geom_text(aes(y = TFR + SE + 0.4, label = round(TFR, 2)), position = position_dodge(.9)) + 
-  theme_demography() + 
   cowplot::theme_cowplot() +
+    theme_demography() + 
   theme(legend.position = "bottom") + 
   theme(axis.text.x = element_text(face = "bold", colour = "black"),
         axis.title.y = element_text(face = "bold", colour = "black"))
