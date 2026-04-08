@@ -61,7 +61,7 @@ expansion_3g_plot <- mobile_coverage_long %>%
 
 # Save plot
 ggsave(plot = expansion_3g_plot,
-       filename = here("figures", "expansion_3g_plot.png"),
+       filename = here("figures", "fig1_expansion_3g_plot.png"),
        height = 4, width = 7.3, bg = "white")
 ```
 
@@ -85,7 +85,6 @@ summary_by_bin <- birth_panel_filtered %>%
     mean_phone_ownership = mean(v169a, na.rm = TRUE), 
     n = n(),
     mean_3G_coverage = mean(pop_share_covered_3g, na.rm = TRUE))
-
 
 # Plot
 mobile_phone_ownership_by_3g_coverage <- ggplot(summary_by_bin, aes(x = coverage_bin, y = mean_phone_ownership)) +

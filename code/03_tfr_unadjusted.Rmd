@@ -26,13 +26,12 @@ coverage_data_cluster <- read_csv(here("data", "coverage_indicators_allyears.csv
 # Join microdata with 3G coverage data 
 ng_2018_women <- dhs_women_recode %>% 
   left_join(coverage_data_cluster, by = c("v000", "v001"))
-
 ```
 
 ```{r}
 ## create new dummy var 
 ng_2018_women <- ng_2018_women %>% 
-  mutate(dummy_pop_share_covered_3g_above_50 = case_when(
+  mutate(dummy_pop_share_covered_3g_above_90 = case_when(
     pop_share_covered_3g > 0.9 ~ 1,
     TRUE ~ 0
   ))
@@ -41,10 +40,10 @@ ng_2018_women <- ng_2018_women %>%
 ng_2018_women <- ng_2018_women %>% 
   filter(!is.na(pop_share_covered_3g)) %>% 
   mutate(phone_coverage = case_when(
-    v169a == 0 & dummy_pop_share_covered_3g_above_50 == 0 ~ "No phone, no 3g",
-    v169a == 0 & dummy_pop_share_covered_3g_above_50 == 1 ~ "No phone, 3g",
-    v169a == 1 & dummy_pop_share_covered_3g_above_50 == 0 ~ "Phone, no 3g",
-    v169a == 1 & dummy_pop_share_covered_3g_above_50 == 1 ~ "Phone, 3g"
+    v169a == 0 & dummy_pop_share_covered_3g_above_90 == 0 ~ "No phone, no 3g",
+    v169a == 0 & dummy_pop_share_covered_3g_above_90 == 1 ~ "No phone, 3g",
+    v169a == 1 & dummy_pop_share_covered_3g_above_90 == 0 ~ "Phone, no 3g",
+    v169a == 1 & dummy_pop_share_covered_3g_above_90 == 1 ~ "Phone, 3g"
   ))
 
 
@@ -67,7 +66,7 @@ cluster_TFR <- cluster_TFR %>%
 # Plot the data
 nigeria_tfr_fig <- ggplot(cluster_TFR, aes(x = reorder(three_g, TFR), y = TFR, fill = phone)) +
   geom_bar(stat = "identity", alpha = 0.3, color = "black", position = position_dodge(.9)) +  # Bar chart for TFR
-  geom_errorbar(aes(ymin = TFR - SE, ymax = TFR + SE), width = 0.2, position = position_dodge(.9)) +  # Error bars for SE
+  geom_errorbar(aes(ymin = TFR - 1.96*SE, ymax = TFR + 1.96*SE), width = 0.2, position = position_dodge(.9)) +  # Error bars for SE
   labs(
     title = "",
     x = "",
@@ -82,7 +81,8 @@ nigeria_tfr_fig <- ggplot(cluster_TFR, aes(x = reorder(three_g, TFR), y = TFR, f
   theme(axis.text.x = element_text(face = "bold", colour = "black"),
         axis.title.y = element_text(face = "bold", colour = "black"))
 
-ggsave(nigeria_tfr_fig, filename = here("figures", "nigeria_tfr_plot.png"), width = 6, height = 4, bg = "white")
+## save nigeria plot 
+ggsave(nigeria_tfr_fig, filename = here("figures", "fig3_nigeria_tfr_plot.png"), width = 6, height = 4, bg = "white")
 ```
 
 

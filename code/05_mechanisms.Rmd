@@ -3,7 +3,9 @@ title: "Descriptive differences"
 author: Casey Breen
 ---
 
-Summary: investigate specific mechanisms 
+Summary: investigate specific mechanisms connecting mobile internet expansion to fertility. The mechanisms include: change in timing of first marriage, change in timing of first sexual intercouse, change in ideal family size, employment status, and more. 
+
+I also test several dimensions of empowerment: "Own health care", "Large household purchases", "Visits to family", "Spend husband earnings", "Spend own earnings."
 
 ```{r}
 ## library packages
@@ -208,6 +210,8 @@ d3 <- coef_df %>%
   mk_bands(mult90 = interval1, mult95 = interval2)
 lim3 <- max(abs(c(d3$lo95, d3$hi95)), na.rm = TRUE)
 
+lim3 <- max(abs(c(d3$lo95, d3$hi95)), na.rm = TRUE)
+
 p3 <- ggplot(d3, aes(x = 0, y = estimate)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   geom_linerange(aes(ymin = lo90, ymax = hi90), linewidth = 1.3) +
@@ -226,14 +230,14 @@ d4 <- coef_df %>%
   filter(outcome == "Age at first sex") %>%
   mk_bands(mult90 = interval1, mult95 = interval2)
 
-lim144 <- max(abs(c(d4$lo95, d4$hi95)), na.rm = TRUE)
+lim4 <- max(abs(c(d4$lo95, d4$hi95)), na.rm = TRUE)
 
 p4 <- ggplot(d4, aes(x = 0, y = estimate)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   geom_linerange(aes(ymin = lo90, ymax = hi90), linewidth = 1.3) +                 # inner (e.g., 90%)
   geom_pointrange(aes(ymin = lo95, ymax = hi95), size = 1.3, stroke = 1.1,       # outer (95%) + point
                   fill = "white", linewidth = 0.8, shape = 22) +
-  scale_y_continuous(limits = c(-lim1, lim1), expand = expansion(mult = 0.05)) +
+  scale_y_continuous(limits = c(-lim4, lim4), expand = expansion(mult = 0.05)) +
   labs(title = "Age at first sex", x = NULL, y = "Age (years)") +
   theme_minimal(base_size = 13) +
   theme(axis.text.x = element_blank(),
@@ -245,7 +249,7 @@ p4 <- ggplot(d4, aes(x = 0, y = estimate)) +
 misc_mechanism_plot <- cowplot::plot_grid(p4, p1, p3, p2, nrow = 1, align = "hv")
 
 # print out plots 
-ggsave(here("figures", "misc_mechanism_plot.png"),
+ggsave(here("figures", "fig6_misc_mechanism_plot.png"),
        plot = misc_mechanism_plot, bg = "white", height = 4, width = 12.5, dpi = 300)
 ```
 
@@ -380,7 +384,7 @@ birth_panel_filtered <- birth_panel_filtered %>%
 
 birth_control_restricted <- feols(
   fml = as.formula(paste("knows_birth_control ~ expansion_3g +", common_controls, "| v012 + gid_1")),
-  data = birth_panel_filtered %>% filter(year == 2010 & pop_share_covered_3g == 0),
+  data = birth_panel_filtered,
   cluster = "v001",
   split = "age_cohort"
 )
@@ -395,8 +399,7 @@ birth_control_restricted <- imap_dfr(
       age_cohort = .y
     )
   }
-) %>%
-  mutate(method = "Folkloric")
+)
 
 
 # Combine and clean
@@ -446,7 +449,7 @@ contraception_figure <- cowplot::plot_grid(plot_contraception, plot_contraceptio
 
 # Save plot
 ggsave(
-  plot = contraception_figure, filename = here("figures", "contraception_figure.png"),
+  plot = contraception_figure, filename = here("figures", "fig7_contraception_figure.png"),
   bg = "white", height = 7, width = 7
 )
 ```
@@ -522,8 +525,8 @@ outcomes <- c("v743a", "v743b", "v743d", "v743f", "v739")
 models <- map(outcomes,
               ~ feols(fml = as.formula(paste(
                 .x, "~ expansion_3g + ", common_controls, "| v012 + gid_1")),
-                data = birth_panel_restricted_special),
-                cluster = "v001")
+                data = birth_panel_restricted_special,
+                cluster = "v001"))
 
 names(models) <- outcomes
 
@@ -563,8 +566,8 @@ outcomes <- c("v743a", "v743b", "v743d", "v743f", "v739")
 models <- map(outcomes,
               ~ feols(fml = as.formula(paste(
                 .x, "~ expansion_3g + ", common_controls, "| v012 + gid_1")),
-                data = birth_panel_restricted_special),
-                cluster = "v001")
+                data = birth_panel_restricted_special,
+                cluster = "v001"))
 
 names(models) <- outcomes
 
@@ -622,7 +625,7 @@ empower_plot <- coef_df_empower_combined %>%
 # Save plot
 ggsave(
   plot = empower_plot,
-  filename = here("figures", "empower_plot.png"),
+  filename = here("figures", "fig8_empower_plot.png"),
   height = 4, width = 12, bg = "white"
 )
 ```

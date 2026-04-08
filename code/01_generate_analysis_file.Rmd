@@ -86,7 +86,7 @@ select(caseid,# caseid for individual women
        v505,  # Number of alternative wives 
        v731   # Worked recently 
        ) %>%  
-  crossing(year = 1900:2018)
+  crossing(year = 2005:2018)
 
 # Reshape births to long
 birth_long <- dhs_birth_recode %>%

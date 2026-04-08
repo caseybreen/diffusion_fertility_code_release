@@ -3,7 +3,7 @@ title: "Individual Predictions"
 author: Casey Breen
 ---
 
-Summary: fit two-way-fixed-effects models (TWFE) estimating 
+Summary: fit two-way-fixed-effects models (TWFE) estimating causal effect of mobile expansion on fertility. 
 
 ```{r}
 ## library packages 
@@ -94,7 +94,7 @@ lpm_model3 <- feols(
 # Model 4: Add individual controls
 lpm_model4 <- feols(
   birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +      ## mobile coverage 
-     num_prev_children_pre_window + 
+    num_prev_children_pre_window + 
     nl_mean_wght_v_i + gdp_wght  + temp_mean + rain_mean,  ## time varying covariates
   fixef = c("v012", "v001", "year", "year_X_early_birth"),
   data = birth_panel_filtered,
@@ -191,33 +191,9 @@ effect_plot <- model_df %>%
   axis.text.x = element_text(face = "bold", colour = "black", size = 11)) + 
   annotate("text", x = 0.6, y = 0.005, label = "No 3G Expansion", size = 4, hjust = 0, color = "darkgrey")
 
-effect_plot_appendix <- model_df %>%
-  ggplot(aes(x = model, y = estimate)) +
-  geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
-  geom_linerange(aes(ymin = CI_90_low, ymax = CI_90_high, color = controls), size = 1.3, position = position_dodge(width = 0.3)) +
-  geom_pointrange(aes(ymin = CI_95_low, ymax = CI_95_high, color = controls, shape = model),
-                  position = position_dodge(width = 0.3), size = 1.5, stroke = 1.5, fill = "white", linewidth = .8) +
-  scale_y_continuous(labels = function(x) x * 100) + 
-  scale_shape_manual(values = c("Baseline" = 21, "+ Time-varying Controls" = 22, "+ Time-varying Controls + Mother FEs" = 23), guide = "none") +  # ◯ and ⬜
-  labs(
-    x = "",
-    y = "Birth Probability Change (%)",
-    color = "Individual-level Controls",
-    shape = "Individual-level Controls"
-  ) +
-  cowplot::theme_cowplot() +
-  scale_color_manual(values = cud)+ 
-  theme(legend.position = "bottom") + 
-  geom_hline(yintercept = 0, color = "grey", linetype = "dashed") + 
-  theme_demography() + 
-  theme(
-  axis.text.x = element_text(face = "bold", colour = "black", size = 11)) + 
-  annotate("text", x = 0.6, y = 0.005, label = "No 3G Expansion", size = 4, hjust = 0, color = "darkgrey")
  
-effect_plot_appendix
-
 # Save plots
-ggsave(plot = effect_plot, filename = here("figures", "effect_plot.png"),
+ggsave(plot = effect_plot, filename = here("figures", "fig4_effect_plot.png"),
        bg = "white", height = 4, width = 9)
 ```
 
@@ -233,7 +209,7 @@ modelsummary(
   ),
   siunitx = FALSE,
   stars = TRUE,
-  output = "../figures/main_result.tex"
+  output = here("figures", "main_result.tex")
 )
 ```
 
@@ -250,7 +226,7 @@ nl_classification <- birth_panel_filtered %>%
   summarize(nl_2010 = first(nl_mean_wght)) %>%
   mutate(nl_group = as.factor(ntile(nl_2010, 3)))
 
-birth_panel_filtered <- birth_panel_filtered %>%
+birth_panel_filtered_nl <- birth_panel_filtered %>%
   distinct(v001) %>%
   inner_join(nl_classification, by = "v001") %>%
   inner_join(birth_panel_filtered, by = "v001")
@@ -259,7 +235,7 @@ lpm_model_nl <- feols(
   birth ~ pop_share_covered_3g_lag1:nl_group + pop_share_covered_2g_lag1 +
     num_prev_children_pre_window + v190 + v714 + v106 + islam + v158 + v159,
   fixef = c("v012", "v001", "year", "year_X_early_birth"),
-  data = birth_panel_filtered,
+  data = birth_panel_filtered_nl,
   cluster = ~v001
 )
 
@@ -401,7 +377,7 @@ heterogeneity_plot
 
 ggsave(
   plot = heterogeneity_plot,
-  filename = here("figures", "effect_heterogeneity_combined.png"),
+  filename = here("figures", "fig5_effect_heterogeneity_combined.png"),
   height = 8, width = 7, bg = "white"
 )
 ```
@@ -438,15 +414,9 @@ es_model_controls <- feols(
 # Extract coefficients and CIs from model
 es_df <- broom::tidy(es_model_controls, conf.int = TRUE) %>%
   filter(grepl("^rel_time_binned", term)) %>%                # keep only event-time terms
-  mutate(event_time = as.numeric(gsub(".*\\[(.*)\\].*", "\\1", term)))
-
-# If you already have a tidy df like the one you pasted:
-es_df <- es_df %>%                                    # or broom::tidy(es_model_controls, conf.int=TRUE)
-  filter(str_detect(term, "^rel_time_binned::")) %>%
-  mutate(
-    event_time = suppressWarnings(as.integer(str_replace(term, "^.*::", "")))
-  ) %>%
+  mutate(event_time = as.integer(str_replace(term, "^.*::", ""))) %>%
   arrange(event_time)
+
 
 event_study <- es_df %>% 
   add_row(estimate = 0, event_time = -1) %>% 

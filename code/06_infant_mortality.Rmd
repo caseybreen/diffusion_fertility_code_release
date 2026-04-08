@@ -1,10 +1,9 @@
 ---
-title: "Individual Predictions"
+title: "Infant mortality analysis"
 author: Casey Breen
 ---
 
-Summary: Calculate individual-level analyses 
-
+Summary: test whether mortality here is 
 
 ```{r}
 ## library packages 
@@ -42,7 +41,7 @@ birth_panel_filtered <- birth_panel_filtered %>%
     filter(v104 > 5)
 
 
-birth_panel_mortality <- birth_panel %>% 
+birth_panel_mortality <- birth_panel_filtered %>% 
   filter(birth == 1)
 
 birth_panel_mortality %>% 
@@ -53,21 +52,21 @@ birth_panel_mortality %>%
 
 
 ```{r}
-# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+# Model 1: LPM with no controls 
 lpm_model_individual_fe1 <- feols(
   infant_death ~ pop_share_covered_3g | v012,
   data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
   cluster = ~v001
 )
 
-# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+# Model 2: LPM with cluster FE, year, age, parity controls 
 lpm_model_individual_fe2 <- feols(
   infant_death ~ pop_share_covered_3g + pop_share_covered_2g + num_prev_children_pre_window +  sum_births_in_window  | v001 + year + v012,
   data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
   cluster = ~v001
 )
 
-# Model 1: LPM with individual (caseid) FE, cluster FE, year, age, parity
+# Model 3: LPM with individual (caseid) FE, cluster FE, year, age, parity
 lpm_model_individual_fe3 <- feols(
   infant_death ~ pop_share_covered_3g + pop_share_covered_2g + num_prev_children_pre_window +  sum_births_in_window  | v012 + v001 + year + caseid,
   data = birth_panel_mortality %>% filter(year %in% 2010:2018) %>% filter(v012 > 23),
@@ -123,7 +122,7 @@ y = "",
         axis.text.y  = element_text(face = "bold", colour = "black"))
 
 # Save plot
-ggsave(plot = mortality_effect_plot, filename = here("figures", "effect_infact_mortality.png"),
+ggsave(plot = mortality_effect_plot, filename = here("figures", "effect_infant_mortality.png"),
        bg = "white", height = 4, width = 7)
 
 mortality_effect_plot
