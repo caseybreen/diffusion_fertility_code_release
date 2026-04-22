@@ -216,10 +216,8 @@ modelsummary(
 
 ## Effect heterogeneity
 
-
 ```{r}
 ## ---- Effect heterogeneity by nightlights (2010) ----
-
 nl_classification <- birth_panel_filtered %>%
   filter(year == 2010) %>%
   group_by(v001) %>%
@@ -252,7 +250,6 @@ coef_df_nl <- broom::tidy(lpm_model_nl) %>%
   )
 
 ## ---- Effect heterogeneity by mobile phone ownership ----
-
 lpm_model_phone <- feols(
   birth ~ as.factor(v169a):pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
     v190 + v714 + v106 + v130 + v158 + v159 + num_prev_children_pre_window,
@@ -277,34 +274,31 @@ coef_df_phone <- broom::tidy(lpm_model_phone) %>%
 
 ## ---- Effect heterogeneity by marital status ----
 
-lpm_mono <- feols(
-  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
+birth_panel_filtered <- birth_panel_filtered %>% 
+  mutate(polygamous_marriage = case_when(
+    v505 == 0 ~ "Monogamous", 
+    v505 %in% 1:12 ~ "Polygynous"
+  ))
+
+lpm_mono_poly <- feols(
+  birth ~ polygamous_marriage:pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
     v190 + v714 + v106 + as.factor(v130) + v158 + v159 + num_prev_children_pre_window,
   fixef = c("v012", "v001", "year", "year_X_early_birth"),
-  data = birth_panel_filtered %>% filter(v505 == 0),
+  data = birth_panel_filtered %>% filter(v505 %in% 0:12),
   cluster = ~v001
 )
 
-lpm_poly <- feols(
-  birth ~ pop_share_covered_3g_lag1 + pop_share_covered_2g_lag1 +
-    v190 + v714 + v106 + as.factor(v130) + v158 + v159 + num_prev_children_pre_window,
-  fixef = c("v012", "v001", "year", "year_X_early_birth"),
-  data = birth_panel_filtered %>% filter(v505 %in% 1:12),
-  cluster = ~v001
-)
+coef_df_marriage <- broom::tidy(lpm_mono_poly) %>%
+  filter(term == "polygamous_marriageMonogamous:pop_share_covered_3g_lag1" | term == "polygamous_marriagePolygynous:pop_share_covered_3g_lag1") %>% 
+  mutate(subgroup = case_when(
+    term == "polygamous_marriageMonogamous:pop_share_covered_3g_lag1" ~ "Monogamous",
+    term == "polygamous_marriagePolygynous:pop_share_covered_3g_lag1" ~ "Polygamous"
+  )) %>% 
+  mutate(subgroup = factor(subgroup, levels = c("Monogamous", "Polygamous"))) %>% 
+  mutate(panel = "Union Type")
 
-coef_df_marriage <- bind_rows(
-  broom::tidy(lpm_mono) %>% mutate(subgroup = "Monogamous"),
-  broom::tidy(lpm_poly) %>% mutate(subgroup = "Polygynous")
-) %>%
-  filter(term == "pop_share_covered_3g_lag1") %>%
-  mutate(
-    subgroup = factor(subgroup, levels = c("Polygynous", "Monogamous")),
-    panel = "Union Type"
-  )
 
 ## ---- Effect heterogeneity by North/South ----
-
 birth_panel_filtered <- birth_panel_filtered %>%
   mutate(north_south = case_when(
     v024 %in% c(1, 2, 3) ~ "North",
@@ -328,6 +322,7 @@ lpm_south <- feols(
   cluster = ~v001
 )
 
+
 coef_df_region <- bind_rows(
   broom::tidy(lpm_north) %>% mutate(subgroup = "Northern Nigeria"),
   broom::tidy(lpm_south) %>% mutate(subgroup = "Southern Nigeria")
@@ -338,8 +333,39 @@ coef_df_region <- bind_rows(
     panel = "Geography"
   )
 
-## ---- Combine and plot ----
+## ---- GDP info ----
+gdp_classification <- birth_panel_filtered %>%
+  filter(year == 2010) %>%
+  group_by(v001) %>%
+  summarize(gdp_wght_2010 = first(gdp_wght)) %>%
+  mutate(gdp_group = as.factor(ntile(gdp_wght_2010, 3)))
 
+birth_panel_filtered_gdp <- birth_panel_filtered %>%
+  distinct(v001) %>%
+  inner_join(gdp_classification, by = "v001") %>%
+  inner_join(birth_panel_filtered, by = "v001")
+
+lpm_model_gdp <- feols(
+  birth ~ pop_share_covered_3g_lag1:gdp_group + pop_share_covered_2g_lag1 +
+    num_prev_children_pre_window + v190 + v714 + v106 + islam + v158 + v159,
+  fixef = c("v012", "v001", "year", "year_X_early_birth"),
+  data = birth_panel_filtered_gdp,
+  cluster = ~v001
+)
+
+coef_df_gdp <- broom::tidy(lpm_model_gdp) %>%
+  filter(str_detect(term, "pop_share_covered_3g_lag1:gdp_group")) %>%
+  mutate(
+    subgroup = case_when(
+      str_detect(term, "gdp_group1") ~ "Low",
+      str_detect(term, "gdp_group2") ~ "Medium",
+      str_detect(term, "gdp_group3") ~ "High"
+    ),
+    subgroup = factor(subgroup, levels = c("Low", "Medium", "High")),
+    panel = "GDP (2010)"
+  )
+
+## ---- Combine and plot ----
 coef_all <- bind_rows(coef_df_nl, coef_df_phone, coef_df_marriage, coef_df_region) %>%
   mutate(
     CI_90_low  = estimate - std.error * interval1,
@@ -381,6 +407,8 @@ ggsave(
   height = 8, width = 7, bg = "white"
 )
 ```
+
+
 
 ## Abraham-Sun Event Study 
 
@@ -437,12 +465,13 @@ event_study <- es_df %>%
 # Save plot
 ggsave(
   plot = event_study,
-  filename = here("figures", "event_study.png"),
+  filename = here("figures", "appendix_event_study.png"),
   height = 4, width = 7, bg = "white"
 )
 
 event_study
 ```
+
 
 
 

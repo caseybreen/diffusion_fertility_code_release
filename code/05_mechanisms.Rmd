@@ -177,7 +177,7 @@ p1 <- ggplot(d1, aes(x = 0, y = estimate)) +
                   fill = "white", linewidth = 0.8, shape = 22) +
   scale_y_continuous(limits = c(-lim1, lim1), expand = expansion(mult = 0.05)) +
   labs(title = "Age at first cohabitation", x = NULL, y = "Age (years)") +
-  theme_minimal(base_size = 13) +
+  theme_cowplot() + 
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid.minor = element_blank(),
@@ -198,7 +198,7 @@ p2 <- ggplot(d2, aes(x = 0, y = estimate)) +
                   fill = "white", linewidth = 0.8, shape = 22) +
   scale_y_continuous(limits = c(-lim2, lim2), expand = expansion(mult = 0.05)) +
   labs(title = "Employment probability", x = NULL, y = "Percentage points") +
-  theme_minimal(base_size = 13) +
+  theme_cowplot() + 
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid.minor = element_blank(),
@@ -219,7 +219,7 @@ p3 <- ggplot(d3, aes(x = 0, y = estimate)) +
                   fill = "white", linewidth = 0.8, shape = 22) +
   scale_y_continuous(limits = c(-lim3, lim3), expand = expansion(mult = 0.05)) +
   labs(title = "Ideal family size", x = NULL, y = "Children (count)") +
-  theme_minimal(base_size = 13) +
+  theme_cowplot() + 
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid.minor = element_blank(),
@@ -239,18 +239,18 @@ p4 <- ggplot(d4, aes(x = 0, y = estimate)) +
                   fill = "white", linewidth = 0.8, shape = 22) +
   scale_y_continuous(limits = c(-lim4, lim4), expand = expansion(mult = 0.05)) +
   labs(title = "Age at first sex", x = NULL, y = "Age (years)") +
-  theme_minimal(base_size = 13) +
+  theme_cowplot() + 
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid.minor = element_blank(),
-        plot.title = element_text(hjust = 0.5))
+        plot.title = element_text(hjust = 0.5)) 
 
 # Combine and save
 misc_mechanism_plot <- cowplot::plot_grid(p4, p1, p3, p2, nrow = 1, align = "hv")
 
 # print out plots 
 ggsave(here("figures", "fig6_misc_mechanism_plot.png"),
-       plot = misc_mechanism_plot, bg = "white", height = 4, width = 12.5, dpi = 300)
+       plot = misc_mechanism_plot, bg = "white", height = 4, width = 13, dpi = 300)
 ```
 
 ## Contraception

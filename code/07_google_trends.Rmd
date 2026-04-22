@@ -141,7 +141,7 @@ google_trends_plot <- cowplot::plot_grid(normative_family_size_fig, contraceptio
 # Save plot
 ggsave(
   plot = google_trends_plot,
-  filename = here("figures", "google_trends_plot.png"),
+  filename = here("figures", "appendix_google_trends_plot.png"),
   height = 8, width = 6, bg = "white")
 ```
 

@@ -122,7 +122,7 @@ y = "",
         axis.text.y  = element_text(face = "bold", colour = "black"))
 
 # Save plot
-ggsave(plot = mortality_effect_plot, filename = here("figures", "effect_infant_mortality.png"),
+ggsave(plot = mortality_effect_plot, filename = here("figures", "appendix_effect_infant_mortality.png"),
        bg = "white", height = 4, width = 7)
 
 mortality_effect_plot

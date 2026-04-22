@@ -9,6 +9,7 @@ author: Casey Breen
 Summary: Construct individual-level analysis file 
 
 ```{r}
+## library packages 
 library(here)
 source(here("code", "helpers.R"))
 ```
@@ -68,6 +69,7 @@ select(caseid,# caseid for individual women
        v106,  # Education
        v130,  # Religion
        v169a, # own mobile phone 
+       v171a, # own mobile phone 
        v613,  # ideal number of children 
        v158,  # Frequency of listening to the radio
        v159,  # Frequency of watching television 

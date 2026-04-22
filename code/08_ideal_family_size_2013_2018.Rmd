@@ -88,7 +88,7 @@ ideal_family_size_plot <- ggplot(est, aes(x = age_num, y = ideal_kids, color = f
   theme(legend.position = "bottom")
 
 # Save plot
-ggsave(plot = ideal_family_size_plot, filename = here("figures", "ideal_family_size_plot.png"),
+ggsave(plot = ideal_family_size_plot, filename = here("figures", "appendix_ideal_family_size_plot.png"),
        bg = "white", height = 4, width = 7)
 
 ```
