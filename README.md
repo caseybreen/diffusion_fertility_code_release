@@ -32,7 +32,7 @@ This repository includes code to replicate all figures and tables in the paper. 
 the steps outlined below: 
 
 1. Clone this repository
-2. Download the `data.zip` file from the OSF Repository [forthcoming upon acceptance], move it to the root level of this repository, and unzip it. 
+2. Download the `data.zip` file from the OSF Repository [forthcoming], move it to the root level of this repository, and unzip it. 
 2. Run the `00_run_all.Rmd` script, which will run all code (or run scripts `01` to `08` individually)
 
 ### Data 
