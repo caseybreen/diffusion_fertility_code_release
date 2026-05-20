@@ -54,21 +54,14 @@ After downloading the required data, researchers can run the following script to
 
 Alternatively, researchers can run the following files individually in order:
 
-`01_generate_analysis_file.Rmd` — Construct the individual-level panel dataset by merging DHS birth and women's recodes with 3G coverage data, cluster-to-admin2 crosswalks, and time-varying covariates.
-
-`02_mobile_coverage_plots.Rmd` — Visualize the expansion of 3G coverage in Nigeria (2010–2018) and plot mobile phone ownership by coverage level.
-
-`03_tfr_unadjusted.Rmd` — Estimate total fertility rates stratified by 3G coverage and mobile phone ownership using DHS rate calculations with jackknife standard errors.
-
-`04_twfe_analysis.Rmd` — Fit two-way fixed effects (TWFE) models estimating the effect of 3G expansion on birth probability, estimate heterogeneous effects by nightlight intensity, phone ownership, union type, and region, and run a Sun and Abraham event study.
-
-`05_mechanisms.Rmd` — Investigate mechanisms including age at first sex, age at first cohabitation, ideal family size, employment, contraceptive use and knowledge, and women's empowerment.
-
-`06_infant_mortality.Rmd` — Estimate the effect of 3G coverage on infant mortality.
-
-`07_google_trends.Rmd` — Query Google Trends for contraception and family size search terms in Nigeria (note: excluded from 00_run_all.Rmd as the API can be unreliable).
-
-`08_ideal_family_size_2013_2018.Rmd` — Analyze shifts in women's ideal number of children between the 2013 and 2018 DHS surveys using IPUMS-DHS data.
+- `01_generate_analysis_file.Rmd` — Construct the individual-level panel dataset by merging DHS birth and women's recodes with 3G coverage data, cluster-to-admin2 crosswalks, and time-varying covariates.
+- `02_mobile_coverage_plots.Rmd` — Visualize the expansion of 3G coverage in Nigeria (2010–2018) and plot mobile phone ownership by coverage level.
+- `03_tfr_unadjusted.Rmd` — Estimate total fertility rates stratified by 3G coverage and mobile phone ownership using DHS rate calculations with jackknife standard errors.
+- `04_twfe_analysis.Rmd` — Fit two-way fixed effects (TWFE) models estimating the effect of 3G expansion on birth probability, estimate heterogeneous effects by nightlight intensity, phone ownership, union type, and region, and run a Sun and Abraham event study.
+- `05_mechanisms.Rmd` — Investigate mechanisms including age at first sex, age at first cohabitation, ideal family size, employment, contraceptive use and knowledge, and women's empowerment.
+- `06_infant_mortality.Rmd` — Estimate the effect of 3G coverage on infant mortality.
+- `07_google_trends.Rmd` — Query Google Trends for contraception and family size search terms in Nigeria (note: excluded from 00_run_all.Rmd as the API can be unreliable).
+- `08_ideal_family_size_2013_2018.Rmd` — Analyze shifts in women's ideal number of children between the 2013 and 2018 DHS surveys using IPUMS-DHS data.
 
 ### Authors
 
