@@ -1,0 +1,66 @@
+---
+title: "Nairaland rationales plot"
+author: Casey Breen
+---
+
+Summary: Create figure showing the rationales posters give for low-fertility
+ideals (0-3 children) on Nairaland, 2010-2018, most to least common
+(lollipop). Rationale codes come from LLM coder passes under a fixed
+codebook; shares are among low-ideal posts that give any rationale.
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## load rationale codes
+
+```{r}
+## one row per ideal post with its rationale codes, assembled by
+## code/scraping/5_build_coding_batches.R from the LLM coding outputs
+rat <- read_csv(here("data", "nairaland", "coded_output", "rationales_coded.csv"))
+```
+
+## create plot
+
+```{r}
+## low-ideal posts (0-3 children) that give any rationale
+low <- rat %>%
+  filter(ideal_n <= 3, !is.na(rationales), rationales != "")
+n_low <- nrow(low)
+
+cats <- c(economic_cost = "Economic cost / affordability",
+          child_quality = "Child quality / education",
+          career_aspiration = "Career / personal goals",
+          womens_autonomy = "Women's autonomy / health",
+          family_planning = "Family planning practicalities",
+          modern_western = "Modern / Western comparison",
+          religion_blessing = "Religion / divine blessing",
+          lineage_continuity = "Lineage / family continuity",
+          security_status = "Children as security / status",
+          traditional_norm = "Tradition / custom")
+
+## share of low-ideal posts giving each rationale, most to least common
+shares <- map_dfr(names(cats), function(cc) {
+  tibble(cat = cats[[cc]],
+         share = mean(str_detect(low$rationales, cc)))
+}) %>%
+  arrange(desc(share)) %>%
+  mutate(cat = factor(cat, levels = rev(cat)))
+
+nairaland_rationales_plot <- ggplot(shares, aes(x = 100 * share, y = cat)) +
+  geom_segment(aes(x = 0, xend = 100 * share, yend = cat),
+               colour = "grey70", linewidth = 0.6) +
+  geom_point(size = 3.4, stroke = 1.1, shape = 21,
+             colour = "darkblue", fill = "white") +
+  labs(x = "Share of posts giving this rationale (%)", y = NULL,
+       subtitle = sprintf("Low-fertility ideals (0-3 children), 2010-2018, n = %d", n_low)) +
+  cowplot::theme_cowplot() +
+  theme(axis.title.x = element_text(face = "bold", colour = "black"))
+
+## Save plot
+ggsave(plot = nairaland_rationales_plot,
+       filename = here("figures", "nairaland_rationales_plot.png"),
+       height = 5, width = 7.3, bg = "white", dpi = 300)
+```

@@ -1,0 +1,113 @@
+---
+title: "Nairaland ideals and rationales panel"
+author: Casey Breen
+---
+
+Summary: Create two-panel figure. Panel A: distribution of stated ideal family
+size in Nairaland posts (2010-2018) vs the DHS 2018 all-women distribution
+(weighted, IPUMS-DHS extract). Panel B: rationales given for low (0-3) vs
+high (5+) fertility ideals. Inputs assembled by
+code/scraping/5_build_coding_batches.R from the LLM coding outputs.
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## load coded inputs
+
+```{r}
+ideals_all <- read_csv(here("data", "nairaland", "coded_output", "stated_ideals.csv"))
+rat <- read_csv(here("data", "nairaland", "coded_output", "rationales_coded.csv"))
+```
+
+## panel a: ideals vs dhs
+
+```{r}
+## DHS 2018 (all women, weighted) from the IPUMS-DHS extract
+dhs <- read_csv(here("data", "idhs_00002.csv"),
+                col_select = c(YEAR, IDEALKID, PERWEIGHT)) %>%
+  filter(YEAR == 2018, IDEALKID < 50)
+dhs_mean <- weighted.mean(dhs$IDEALKID, dhs$PERWEIGHT)
+
+win <- ideals_all %>% filter(post_year >= 2010, post_year <= 2018)
+nl_mean <- mean(win$ideal_n)
+
+dist <- bind_rows(
+  dhs %>%
+    mutate(n_cap = pmin(IDEALKID, 8)) %>%
+    count(n_cap, wt = PERWEIGHT) %>%
+    mutate(share = n / sum(n), src = "DHS 2018"),
+  win %>%
+    mutate(n_cap = pmin(ideal_n, 8)) %>%
+    count(n_cap) %>%
+    mutate(share = n / sum(n), src = "Nairaland")
+)
+
+panel_a <- ggplot(dist, aes(n_cap, 100 * share, fill = src)) +
+  geom_col(position = "dodge", width = 0.7, alpha = 0.7, color = "black") +
+  scale_x_continuous(breaks = 0:8, labels = c(0:7, "8+")) +
+  scale_fill_manual(
+    values = c("DHS 2018" = "grey65", "Nairaland" = "darkblue"),
+    labels = c(sprintf("DHS 2018 (mean = %.1f)", dhs_mean),
+               sprintf("Nairaland (mean = %.1f)", nl_mean))) +
+  labs(x = "Ideal number of children", y = "Percent (%)", fill = NULL) +
+  cowplot::theme_cowplot() +
+  theme(axis.title = element_text(face = "bold"),
+        legend.position = "bottom")
+```
+
+## panel b: rationales for low vs high ideals
+
+```{r}
+groups <- rat %>%
+  filter(!is.na(rationales), rationales != "", ideal_n != 4) %>%
+  mutate(group = if_else(ideal_n <= 3, "Low ideal (0-3)", "High ideal (5+)"))
+
+cats <- c(economic_cost = "Economic cost / affordability",
+          child_quality = "Child quality / education",
+          career_aspiration = "Career / personal goals",
+          womens_autonomy = "Women's autonomy / health",
+          family_planning = "Family planning practicalities",
+          modern_western = "Modern / Western comparison",
+          religion_blessing = "Religion / divine blessing",
+          lineage_continuity = "Lineage / family continuity",
+          security_status = "Children as security / status",
+          traditional_norm = "Tradition / custom")
+
+shares <- map_dfr(names(cats), function(cc) {
+  groups %>%
+    group_by(group) %>%
+    summarise(share = mean(str_detect(rationales, cc)), .groups = "drop") %>%
+    mutate(cat = cats[[cc]])
+}) %>%
+  mutate(cat = fct_reorder(cat, share * (group == "Low ideal (0-3)"), sum))
+
+panel_b <- ggplot(shares, aes(x = 100 * share, y = cat)) +
+  geom_line(aes(group = cat), colour = "grey70", linewidth = 0.6) +
+  geom_point(aes(fill = group), size = 3.4, stroke = 1.1, shape = 21,
+             colour = "black") +
+  ## steel blue (not panel A's Nairaland darkblue) so the two panels'
+  ## color codings read as separate legends
+  scale_fill_manual(values = c("Low ideal (0-3)" = "steelblue",
+                               "High ideal (5+)" = "darkorange"),
+                    breaks = c("Low ideal (0-3)", "High ideal (5+)")) +
+  labs(x = "Proportion of posts providing rationale (%)", y = NULL, fill = NULL) +
+  cowplot::theme_cowplot() +
+  theme(axis.title.x = element_text(face = "bold", colour = "black"),
+        legend.position = "bottom")
+```
+
+## combine and save
+
+```{r}
+## NULL row adds breathing room between the panels
+nairaland_ideals_rationales_panel <- plot_grid(panel_a, NULL, panel_b, ncol = 1,
+                                               labels = c("A", "", "B"),
+                                               rel_heights = c(1, 0.07, 1.1))
+
+ggsave(plot = nairaland_ideals_rationales_panel,
+       filename = here("figures", "nairaland_ideals_rationales_panel.png"),
+       height = 9.6, width = 7.3, bg = "white", dpi = 300)
+```

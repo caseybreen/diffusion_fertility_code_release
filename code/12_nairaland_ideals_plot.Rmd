@@ -1,0 +1,91 @@
+---
+title: "Nairaland ideal family size plot"
+author: Casey Breen
+---
+
+Summary: Create figure comparing the distribution of stated ideal family size
+in Nairaland posts (2010-2018, including coded zero/childfree ideals) with the
+DHS 2018 all-women distribution (weighted, from the IPUMS-DHS extract).
+Coded inputs (LLM passes under fixed codebooks; see appendix):
+ideals_full_*.csv = extracted numeric ideals; zero_coded.csv = childfree pass.
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## load stated ideals
+
+```{r}
+## one row per stated ideal (numeric + childfree), assembled by
+## code/scraping/5_build_coding_batches.R from the LLM coding outputs
+ideals_all <- read_csv(here("data", "nairaland", "coded_output", "stated_ideals.csv"))
+```
+
+## dhs comparison
+
+```{r}
+## DHS 2018 (all women, weighted) from the IPUMS-DHS extract
+dhs <- read_csv(here("data", "idhs_00002.csv"),
+                col_select = c(YEAR, IDEALKID, PERWEIGHT)) %>%
+  filter(YEAR == 2018, IDEALKID < 50)
+dhs_mean <- weighted.mean(dhs$IDEALKID, dhs$PERWEIGHT)
+
+## Nairaland ideals in the study window
+win <- ideals_all %>% filter(post_year >= 2010, post_year <= 2018)
+nl_mean <- mean(win$ideal_n)
+```
+
+## create plot
+
+
+```{r}
+dist <- bind_rows(
+  dhs %>%
+    mutate(n_cap = pmin(IDEALKID, 8)) %>%
+    count(n_cap, wt = PERWEIGHT) %>%
+    mutate(share = n / sum(n), src = "DHS 2018"),
+  win %>%
+    mutate(n_cap = pmin(ideal_n, 8)) %>%
+    count(n_cap) %>%
+    mutate(share = n / sum(n), src = "Nairaland")
+)
+
+nairaland_ideals_plot <- ggplot(
+  dist,
+  aes(n_cap, 100 * share, fill = src)
+) +
+  geom_col(position = "dodge", width = 0.7, alpha = 0.7, color = "black") +
+  scale_fill_manual(values = c("DHS 2018" = "grey65",
+                               "Nairaland" = "darkblue")) +
+  scale_x_continuous(breaks = 0:8, labels = c(0:7, "8+")) +
+  labs(
+    x = "Ideal number of children",
+    y = "Percent (%)",
+    fill = NULL
+  ) +
+  cowplot::theme_cowplot() +
+  theme(
+    axis.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  ) + 
+  scale_fill_manual(
+  values = c(
+    "DHS 2018" = "grey65",
+    "Nairaland" = "darkblue"
+  ),
+  labels = c(
+    "DHS 2018 (mean = 6.1)",
+    "Nairaland (mean = 3.3)"
+  )
+)
+
+nairaland_ideals_plot
+
+## Save plot
+ggsave(plot = nairaland_ideals_plot,
+       filename = here("figures", "nairaland_ideals_plot.png"),
+       height = 4.8, width = 7.3, bg = "white", dpi = 300)
+```
+

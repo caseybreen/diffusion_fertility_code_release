@@ -1,0 +1,124 @@
+% Appendix: LLM coding instructions for the three Nairaland coding tasks.
+% Each coder received the framing, the coding rules below, and one batch of
+% posts (tid, page, k, post_year, title, text); coders returned one row per
+% post in input order. Requires booktabs.
+
+%% ---------------------------------------------------------------------------
+\begin{table}[t]
+\centering
+\footnotesize
+\begin{tabular}{p{2.2cm}p{11.6cm}}
+\toprule
+\multicolumn{2}{p{13.8cm}}{\textbf{Task framing.} ``You are coding Nairaland
+(Nigerian forum) posts for stated family-size ideals. This is a full sweep:
+most posts are ordinary conversation and state no ideal; expect the large
+majority to be \texttt{has\_ideal} = 0. For each post, judge whether the
+poster states their own ideal, desired, or recommended number of children, in
+any phrasing: `I want 2 kids', `three is enough for any couple', `give me a
+boy and a girl and I'm done', `4 kids max', `I go born 3 pikin', `no more
+than 2', `stop at 4'.''} \\
+\midrule
+\textbf{Variable} & \textbf{Coding rule} \\
+\midrule
+\texttt{has\_ideal} & 1 only for a genuine own or recommended ideal number
+(0 counts as a number if the poster genuinely wants no children). Counts of
+existing children, other people's families, news, jokes, and questions
+code 0. \\
+\addlinespace
+\texttt{ideal\_n} & The integer: childfree = 0; ``a boy and a girl'' = 2;
+ranges take the floored midpoint; ``maximum of $N$'' = $N$. Empty if
+\texttt{has\_ideal} = 0. \\
+\addlinespace
+\texttt{ideal\_kind} & \textit{own} (the poster's own ideal) or
+\textit{prescriptive} (a number recommended for others). \\
+\bottomrule
+\end{tabular}
+\caption{Coding instructions for stated ideal family size. Every post written
+2010--2018 in the analysis corpus was coded individually; no keyword filter
+was applied.}
+\label{tab:codebook_ideals}
+\end{table}
+
+%% ---------------------------------------------------------------------------
+\begin{table}[t]
+\centering
+\footnotesize
+\begin{tabular}{p{3.4cm}p{10.4cm}}
+\toprule
+\multicolumn{2}{p{13.8cm}}{\textbf{Task framing.} ``You are coding the
+reasoning behind stated family-size ideals in Nairaland posts. For each post,
+code which rationales the post gives for its stated ideal. Categories are
+multi-label; leave empty if the post states the ideal with no reasoning
+(many are bare numeric answers, which is expected). Code only reasoning the
+poster actually gives for their own stated ideal, not general topic content.
+Formulaic phrases like `by God's grace' are not
+\texttt{religion\_blessing}.''} \\
+\midrule
+\textbf{Category} & \textbf{Definition} \\
+\midrule
+\texttt{economic\_cost} & Affordability, school fees, poverty, ``this economy'' \\
+\texttt{child\_quality} & Raise, train, or educate few children well \\
+\texttt{career\_aspiration} & Poster's career, business, personal goals \\
+\texttt{womens\_autonomy} & Women's independence, body, health, freedom \\
+\texttt{family\_planning} & Contraception or spacing practicalities as reason \\
+\texttt{religion\_blessing} & Children as God's gift or will, religious duty \\
+\texttt{lineage\_continuity} & Family name, heirs, inheritance \\
+\texttt{security\_status} & Children as old-age support, social standing, helpers \\
+\texttt{modern\_western} & Comparisons to abroad, developed countries, modern times \\
+\texttt{traditional\_norm} & Appeals to culture, tradition, how it is done \\
+\bottomrule
+\end{tabular}
+\caption{Coding instructions for rationales. All posts stating an ideal were
+coded; categories may overlap within a post.}
+\label{tab:codebook_rationales}
+\end{table}
+
+%% ---------------------------------------------------------------------------
+\begin{table}[t]
+\centering
+\footnotesize
+\begin{tabular}{p{2.6cm}p{5.6cm}p{5.6cm}}
+\toprule
+\multicolumn{3}{p{13.8cm}}{\textbf{Task framing.} ``You are coding Nairaland
+posts from family-planning and childbearing threads for cultural scripts
+about fertility. Code three independent binary dimensions; a post can be 1 on
+any, all, or none. Most posts are banter, news reactions, or unrelated
+debate: code 0 on all dimensions for those; that is expected for the large
+majority of rows.'' Endorsement and opposition were coded in two separate
+passes over the same posts, with the rules below.} \\
+\midrule
+\textbf{Script} & \textbf{Endorsing (pass 1)} & \textbf{Opposing (pass 2)} \\
+\midrule
+Planned fertility & Frames fertility as something to be planned: child
+spacing, limiting births, stopping at a number, timing births, family
+planning endorsed as practice, waiting until ready. Merely mentioning the
+topic or opposing planning = 0. & Rejects deliberate fertility control:
+births should be left to God, nature, or fate; family planning dismissed as
+wrong, foreign, or pointless. Neutral reporting or questions = 0. \\
+\addlinespace
+Modern contraception / medical authority & Invokes modern contraceptive
+methods by name (pills, IUD, implants, injectables, condoms, sterilization,
+emergency contraception) or expert or medical authority (doctors, nurses,
+hospitals, WHO). Traditional or folk methods alone (herbs, withdrawal,
+abstinence, prayer) = 0. & Rejects or warns against modern methods:
+religious or moral objection (sin, promotes promiscuity), fear or claims of
+harm (pills or IUDs cause infertility or cancer), or promoting natural or
+folk methods explicitly as better than modern ones. Balanced side-effect
+information while still endorsing use = 0. \\
+\addlinespace
+Female reproductive autonomy & Invokes female autonomy or intentionality in
+reproductive decisions: a woman deciding or having the right to decide her
+births or her body, spousal joint decision framed as her equal say, refusing
+husband or family pressure. General women's empowerment talk without
+reproductive-decision content = 0. & Asserts that reproductive decisions
+belong to the husband or family, that a wife must submit or needs her
+husband's permission, or condemns a woman for deciding her childbearing or
+contraception herself. General sexism without reproductive-decision
+content = 0. \\
+\bottomrule
+\end{tabular}
+\caption{Coding instructions for fertility scripts. Every post written
+2010--2018 in the family-planning and childbearing threads was coded on all
+three dimensions, once for endorsement and once for opposition.}
+\label{tab:codebook_scripts}
+\end{table}

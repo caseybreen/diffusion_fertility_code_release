@@ -18,7 +18,8 @@ pacman::p_load(
   ggsci,          # Colors for ggplot 
   survey,          # Survey package 
   gtrendsR,
-  zoo)
+  zoo,
+  jsonlite)
 
 ## custom color schemes
 cudb <- c("#49b7fc", "#ff7b00", "#17d898", "#ff0083", "#0015ff", "#e5d200", "#999999")

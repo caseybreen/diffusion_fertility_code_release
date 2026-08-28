@@ -1,0 +1,70 @@
+---
+title: "Nairaland threads and views plot"
+author: Casey Breen
+---
+
+Summary: Create figure with cumulative Nairaland family-life threads in the
+analysis corpus (panel A) and cumulative views of those threads (panel B),
+2005-2018. The corpus is every scraped thread (all seven family-life title
+domains), so the count matches the denominators used in the post-level
+analyses (Rmds 12-14).
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## create plot
+
+```{r}
+## analysis corpus: scraped threads in the four censused domains (family size,
+## childbearing, family planning, parenting cost) -- matches the methods text
+scraped_tids <- read_csv(here("data", "nairaland", "prep", "posts_complete.csv")) %>%
+  distinct(tid) %>% pull(tid)
+
+## cumulative threads + views by thread creation year
+cum <- read_csv(here("data", "nairaland", "prep", "threads_analysis.csv")) %>%
+  filter(thread_id %in% scraped_tids,
+         fertility_core | d_parenting_cost == 1,
+         year >= 2005, year <= 2018) %>%
+  group_by(year) %>%
+  summarise(n = n(), v = sum(n_views, na.rm = TRUE)) %>%
+  arrange(year) %>%
+  mutate(cum_threads = cumsum(n), cum_views = cumsum(v) / 1e6)
+
+paper_style <- list(
+  cowplot::theme_cowplot(),
+  scale_x_continuous(breaks = seq(2005, 2018, 1)),
+  theme(axis.title.y = element_text(face = "bold", colour = "black"),
+        axis.title.x = element_text(face = "bold", colour = "black"),
+        axis.text.x = element_text(size = 10),
+        legend.position = "none"))
+
+cum_threads_plot <- ggplot(cum, aes(x = year, y = cum_threads)) +
+  geom_line(color = "darkblue") +
+  geom_point(size = 3, stroke = 1, shape = 21, color = "darkblue", fill = "white") +
+  geom_text(aes(label = if_else(year %% 2 == 1 | year == 2018,
+                                scales::comma(cum_threads), NA_character_)),
+            vjust = -1.5, size = 4, color = "darkblue", na.rm = TRUE) +
+  labs(x = NULL, y = "Cumulative threads") +
+  ylim(0, 720) +
+  paper_style
+
+cum_views_plot <- ggplot(cum, aes(x = year, y = cum_views)) +
+  geom_line(color = "#CC6600") +
+  geom_point(size = 3, stroke = 1, shape = 23, color = "#CC6600", fill = "white") +
+  geom_text(aes(label = if_else(year %% 2 == 1 | year == 2018,
+                                sprintf("%.1f", cum_views), NA_character_)),
+            vjust = -1.5, size = 4, color = "#CC6600", na.rm = TRUE) +
+  labs(x = "Year", y = "Cumulative views (millions)") +
+  ylim(0, 4.8) +
+  paper_style
+
+nairaland_threads_views_plot <- plot_grid(cum_threads_plot, cum_views_plot, ncol = 1, labels = "AUTO")
+
+## Save plot
+ggsave(plot = nairaland_threads_views_plot,
+       filename = here("figures", "nairaland_threads_views_plot.png"),
+       height = 8, width = 7.3, bg = "white", dpi = 300)
+```

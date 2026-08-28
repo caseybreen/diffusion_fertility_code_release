@@ -127,3 +127,28 @@ loaded via a namespace (and not attached):
 [50] systemfonts_1.2.3   fs_1.6.6
 
 ```
+
+## Nairaland analysis
+
+Scripts 10-13 analyze a census of Nairaland (nairaland.com), Nigeria's largest
+online forum: all 103,277 Family-board threads (2005-2026) plus the full text
+of every fertility-relevant thread (~70,000 posts across 1,285 threads),
+collected August 18, 2026 with the all-R pipeline in `code/scraping/`
+(census -> calibration [optional] -> classify & date -> thread text ->
+coding batches).
+
+- `10_nairaland_data_prep.Rmd` — post corpus; thread years from observed
+  first posts (ID-interpolated dates kept as comparison); ideal candidates
+- `11_nairaland_threads_views_plot.Rmd` — cumulative fertility-related
+  threads and views, 2005-2018
+- `12_nairaland_ideals_plot.Rmd` — stated ideal family size in posts
+  (2010-2018: n = 284, mean 3.3) vs. the DHS 2018 national distribution
+  (weighted, mean 6.1)
+- `13_nairaland_rationales_plot.Rmd` — rationales for low (0-3) vs. high (5+)
+  fertility ideals
+
+Stated ideals, childfree ideals, and rationale categories were coded by
+large-language-model passes under fixed codebooks (staged by
+`code/scraping/5_build_coding_batches.R`; outputs in
+`data/nairaland/raw/coding/`). Human validation of coded subsamples is
+described in the appendix.

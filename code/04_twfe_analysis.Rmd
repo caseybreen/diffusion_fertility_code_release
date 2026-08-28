@@ -277,7 +277,7 @@ coef_df_phone <- broom::tidy(lpm_model_phone) %>%
 birth_panel_filtered <- birth_panel_filtered %>% 
   mutate(polygamous_marriage = case_when(
     v505 == 0 ~ "Monogamous", 
-    v505 %in% 1:12 ~ "Polygynous"
+    v505 %in% 1:12 ~ "Polygamous"
   ))
 
 lpm_mono_poly <- feols(
@@ -289,10 +289,10 @@ lpm_mono_poly <- feols(
 )
 
 coef_df_marriage <- broom::tidy(lpm_mono_poly) %>%
-  filter(term == "polygamous_marriageMonogamous:pop_share_covered_3g_lag1" | term == "polygamous_marriagePolygynous:pop_share_covered_3g_lag1") %>% 
+  filter(term == "polygamous_marriageMonogamous:pop_share_covered_3g_lag1" | term == "polygamous_marriagePolygamous:pop_share_covered_3g_lag1") %>% 
   mutate(subgroup = case_when(
     term == "polygamous_marriageMonogamous:pop_share_covered_3g_lag1" ~ "Monogamous",
-    term == "polygamous_marriagePolygynous:pop_share_covered_3g_lag1" ~ "Polygamous"
+    term == "polygamous_marriagePolygamous:pop_share_covered_3g_lag1" ~ "Polygamous"
   )) %>% 
   mutate(subgroup = factor(subgroup, levels = c("Monogamous", "Polygamous"))) %>% 
   mutate(panel = "Union Type")
@@ -364,15 +364,60 @@ coef_df_gdp <- broom::tidy(lpm_model_gdp) %>%
     subgroup = factor(subgroup, levels = c("Low", "Medium", "High")),
     panel = "GDP (2010)"
   )
+```
 
+
+```{r}
+baseline_region <- birth_panel_filtered %>%
+  filter(!is.na(north_south)) %>%
+  mutate(subgroup = case_when(
+    north_south == "North" ~ "Northern Nigeria",
+    north_south == "South" ~ "Southern Nigeria"
+  )) %>%
+  group_by(subgroup) %>%
+  summarize(baseline = mean(birth, na.rm = TRUE))
+
+baseline_nl <- birth_panel_filtered_nl %>%
+  mutate(subgroup = case_when(
+    nl_group == 1 ~ "Low", nl_group == 2 ~ "Medium", nl_group == 3 ~ "High"
+  )) %>%
+  group_by(subgroup) %>%
+  summarize(baseline = mean(birth, na.rm = TRUE))
+
+baseline_phone <- birth_panel_filtered %>%
+  mutate(subgroup = case_when(
+    v169a == 0 ~ "No Mobile Phone", v169a == 1 ~ "Owns Mobile Phone"
+  )) %>%
+  filter(!is.na(subgroup)) %>%
+  group_by(subgroup) %>%
+  summarize(baseline = mean(birth, na.rm = TRUE))
+
+baseline_marriage <- birth_panel_filtered %>%
+  filter(v505 %in% 0:12) %>%
+  group_by(polygamous_marriage) %>%
+  summarize(baseline = mean(birth, na.rm = TRUE)) %>%
+  rename(subgroup = polygamous_marriage)
+
+baselines <- bind_rows(baseline_region, baseline_nl, baseline_phone, baseline_marriage)
+```
+
+
+```{r}
 ## ---- Combine and plot ----
 coef_all <- bind_rows(coef_df_nl, coef_df_phone, coef_df_marriage, coef_df_region) %>%
+  left_join(baselines, by = "subgroup") %>%
   mutate(
+    estimate  = estimate  / baseline,
+    std.error = std.error / baseline,
     CI_90_low  = estimate - std.error * interval1,
     CI_90_high = estimate + std.error * interval1,
     CI_95_low  = estimate - std.error * interval2,
     CI_95_high = estimate + std.error * interval2
-  )
+  ) %>% 
+  mutate(subgroup = factor(subgroup, levels = c("Low", "Medium", "High",
+                                                "Northern Nigeria", "Southern Nigeria",
+                                                "Owns Mobile Phone", "No Mobile Phone",
+                                                "Monogamous", "Polygamous")))
 
 heterogeneity_plot <- ggplot(coef_all, aes(x = estimate, y = subgroup)) +
   geom_vline(xintercept = 0, colour = "gray50", lty = 2) +
@@ -383,7 +428,7 @@ heterogeneity_plot <- ggplot(coef_all, aes(x = estimate, y = subgroup)) +
                   colour = 'grey40', fill = 'white') +
   facet_wrap(~panel, scales = "free_y", ncol = 1) +
   scale_x_continuous(labels = function(x) x * 100) +
-  labs(x = "Effect of 3G Expansion on Birth Probability\n(Percentage Point Change)", y = "") +
+  labs(x = "Effect of 3G Expansion on Birth Probability\n(Relative Percent Change)", y = "") +
   cowplot::theme_cowplot() +
   theme_demography() + 
   theme(

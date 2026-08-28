@@ -1,0 +1,93 @@
+---
+title: "Nairaland data prep"
+author: Casey Breen
+---
+
+Summary: Build the Nairaland post-text corpus and identify candidate posts
+mentioning a number of children. Upstream inputs come from the collection
+pipeline in `code/scraping/` (1 census -> 2 calibration [optional] ->
+3 classify & date -> 4 thread text). Thread years are taken from each
+thread's observed first post; the ID-interpolated date (from the optional
+calibration) is kept alongside for comparison and as a fallback for threads
+without scraped text.
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+pacman::p_load(jsonlite)
+```
+
+## assemble post-text corpus
+
+```{r}
+threads <- read_csv(here("data", "nairaland", "prep", "threads_dated.csv"))
+
+## complete conversations (every page of every selected thread, incl. page 0)
+posts_complete <- stream_in(
+  file(here("data", "nairaland", "raw", "threads_fulltext.jsonl")),
+  verbose = FALSE) %>%
+  as_tibble() %>%
+  mutate(page = as.integer(page),
+         nwords = str_count(replace_na(text, ""), "\\S+")) %>%
+  distinct(tid, page, k, .keep_all = TRUE) %>%
+  left_join(threads %>% select(thread_id, title, n_views, domains),
+            by = c("tid" = "thread_id")) %>%
+  arrange(tid, page, k)
+```
+
+## date threads from their observed first post
+
+```{r}
+## first-post date per thread ("May 28, 2019"; no year = collection year)
+obs_year <- posts_complete %>%
+  filter(page == 0, k == 0) %>%
+  transmute(thread_id = tid,
+            year_obs = coalesce(suppressWarnings(year(mdy(date))), 2026))
+
+## idempotent: threads_dated.csv (from 3_classify_and_date.R) is never
+## modified; the enriched version goes to its own analysis file below
+threads <- threads %>%
+  rename(year_est = year) %>%
+  left_join(obs_year, by = "thread_id") %>%
+  mutate(year = coalesce(year_obs, year_est))
+
+## agreement between observed and ID-interpolated years (calibration check)
+both <- threads %>% filter(!is.na(year_obs), !is.na(year_est))
+cat(sprintf("threads with observed first-post year: %d; agreement with ID-interpolated year: %.1f%%\n",
+            nrow(both), 100 * mean(both$year_obs == both$year_est)))
+
+write_csv(threads, here("data", "nairaland", "prep", "threads_analysis.csv"))
+
+## attach thread year to the corpus
+posts_complete <- posts_complete %>%
+  left_join(threads %>% select(thread_id, year), by = c("tid" = "thread_id"))
+
+## write out posts 
+write_csv(posts_complete, here("data", "nairaland", "prep", "posts_complete.csv"))
+```
+
+## identify ideal-family-size candidate posts
+
+```{r}
+## broadened candidate net (numbers 1-12, digits or words; pidgin; cue-first
+## phrasings; misspellings; standalone sex-composition)
+nums <- "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|1[0-2]|[1-9])"
+kidwords <- "(kids?\\b|kidz|kiddies|child\\b|chil?dren|babies|babys|pikins?\\b|boys? and|girls? and)"
+num_rx <- regex(paste0(
+  "\\b", nums, "\\s*", kidwords,                          # "3 children", "two pikin"
+  "|(stop(ped|ping)? at|no more than|not more than|max(imum)?( of)?)\\s*", nums, # "stop at 3"
+  "|\\b", nums, "\\s*(kids?|children|pikins?)?\\s*max\\b",  # "4 kids max"
+  "|\\b(born|give me|given me|gimme|blessed( me)? with)\\s*", nums, # "I go born 4", "God don give me 3"
+  "|\\ba boy and a girl\\b|\\ba girl and a boy\\b"),   # sex-composition, no numeral
+  ignore_case = TRUE)
+
+## post date where stamped (no year = collection year); thread year otherwise
+ideal_candidates <- posts_complete %>%
+  filter(str_detect(replace_na(text, ""), num_rx)) %>%
+  filter(year %in% c(2010:2018)) |> 
+  mutate(post_year = coalesce(suppressWarnings(year(mdy(date))), year))
+
+write_csv(ideal_candidates %>% select(tid, page, k, post_year, title, text),
+          here("data", "nairaland", "prep", "ideal_candidates_full.csv"))
+```

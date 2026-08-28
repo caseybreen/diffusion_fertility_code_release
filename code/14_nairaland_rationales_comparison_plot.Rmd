@@ -1,0 +1,71 @@
+---
+title: "Nairaland rationales comparison plot"
+author: Casey Breen
+---
+
+Summary: Create dumbbell figure comparing the rationales posters give for
+low-fertility ideals (0-3 children) vs high-fertility ideals (5+ children)
+on Nairaland, 2010-2018. Rationale codes come from LLM coder passes under a
+fixed codebook; shares are among posts in each group that give any rationale.
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## load rationale codes
+
+```{r}
+## one row per ideal post with its rationale codes, assembled by
+## code/scraping/5_build_coding_batches.R from the LLM coding outputs
+rat <- read_csv(here("data", "nairaland", "coded_output", "rationales_coded.csv"))
+```
+
+## create plot
+
+```{r}
+## posts that give any rationale, split by stated ideal (4 excluded as neither)
+groups <- rat %>%
+  filter(!is.na(rationales), rationales != "", ideal_n != 4) %>%
+  mutate(group = if_else(ideal_n <= 3, "Low ideal (0-3)", "High ideal (5+)"))
+n_low  <- sum(groups$group == "Low ideal (0-3)")
+n_high <- sum(groups$group == "High ideal (5+)")
+
+cats <- c(economic_cost = "Economic cost / affordability",
+          child_quality = "Child quality / education",
+          career_aspiration = "Career / personal goals",
+          womens_autonomy = "Women's autonomy / health",
+          family_planning = "Family planning practicalities",
+          modern_western = "Modern / Western comparison",
+          religion_blessing = "Religion / divine blessing",
+          lineage_continuity = "Lineage / family continuity",
+          security_status = "Children as security / status",
+          traditional_norm = "Tradition / custom")
+
+## share of each group's posts giving each rationale, sorted by low-ideal share
+shares <- map_dfr(names(cats), function(cc) {
+  groups %>%
+    group_by(group) %>%
+    summarise(share = mean(str_detect(rationales, cc)), .groups = "drop") %>%
+    mutate(cat = cats[[cc]])
+}) %>%
+  mutate(cat = fct_reorder(cat, share * (group == "Low ideal (0-3)"), sum))
+
+nairaland_rationales_comparison_plot <- ggplot(shares, aes(x = 100 * share, y = cat)) +
+  geom_line(aes(group = cat), colour = "grey70", linewidth = 0.6) +
+  geom_point(aes(fill = group), size = 3.4, stroke = 1.1, shape = 21,
+             colour = "black") +
+  scale_fill_manual(values = c("Low ideal (0-3)" = "darkblue",
+                               "High ideal (5+)" = "darkorange"),
+                    breaks = c("Low ideal (0-3)", "High ideal (5+)")) +
+  labs(x = "Share of posts giving this rationale (%)", y = NULL, fill = NULL) +
+  cowplot::theme_cowplot() +
+  theme(axis.title.x = element_text(face = "bold", colour = "black"),
+        legend.position = "bottom")
+
+## Save plot
+ggsave(plot = nairaland_rationales_comparison_plot,
+       filename = here("figures", "nairaland_rationales_comparison_plot.png"),
+       height = 5.5, width = 7.3, bg = "white", dpi = 300)
+```

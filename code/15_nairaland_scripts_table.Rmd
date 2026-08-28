@@ -1,0 +1,114 @@
+---
+title: "Nairaland fertility scripts table"
+author: Casey Breen
+---
+
+Summary: Create the fertility-scripts exhibit (Table): prevalence of three
+cultural scripts - planned fertility, modern contraception/medical authority,
+and female reproductive autonomy - among all posts in family-planning and
+childbearing threads, 2010-2018, with a verbatim example of each. Codes come
+from LLM passes under a fixed codebook (assembled by
+code/scraping/6_build_scripts_batches.R).
+
+```{r}
+## Library packages
+library(here)
+source(here("code", "helpers.R"))
+```
+
+## load script codes
+
+```{r}
+sc <- read_csv(here("data", "nairaland", "coded_output", "scripts_coded.csv"))
+posts <- read_csv(here("data", "nairaland", "prep", "posts_complete.csv"))
+```
+
+## build table
+
+```{r}
+## verbatim excerpts, chosen from coder-nominated exemplars
+## (data/nairaland/raw/quotes/scripts_quote_candidates.csv); each is checked below to
+## appear verbatim in its source post
+examples <- tribble(
+  ~script, ~tid, ~page, ~k, ~example,
+  "planning", 3264213, 0, 11,
+  "Condoms and self control. We've been married 5 years and have just 1 child. As planned.",
+  "medical", 3264213, 0, 2,
+  "we went to d hospital, they gave us a booklet, I went home n compared my options. I went for implanon. they are all free, here in abuja general hospitals.",
+  "autonomy", 2404863, 0, 13,
+  "For goodness sake, it's her body! Every pregnancy comes with it's own risks and at the end of the day, it's up to the woman (and no one else) to take care of her body.")
+
+check <- examples %>%
+  left_join(posts %>% select(tid, page, k, text), by = c("tid", "page", "k"))
+stopifnot(str_detect(fixed(check$text), fixed(check$example)))
+examples <- examples %>% select(script, example)
+
+defs <- tribble(
+  ~script,    ~label,                                  ~definition,
+  "planning", "Planned fertility",                     "Births framed as subject to deliberate control: spacing, limiting, stopping, or timing",
+  "medical",  "Modern contraception / medical authority", "Names a modern contraceptive method or invokes doctors, clinics, or health authorities",
+  "autonomy", "Female reproductive autonomy",          "Asserts a woman's right or capacity to decide her own childbearing")
+
+## endorsing counts (planning/medical/autonomy) vs opposing counts from the
+## counter-script pass (opposes_planning/opposes_modern/denies_autonomy)
+tab <- defs %>%
+  left_join(examples, by = "script") %>%
+  mutate(n = c(sum(sc$endorses_planning), sum(sc$endorses_modern), sum(sc$endorses_autonomy)),
+         pct = 100 * n / nrow(sc),
+         n_opp = c(sum(sc$opposes_planning), sum(sc$opposes_modern),
+                   sum(sc$denies_autonomy)),
+         pct_opp = 100 * n_opp / nrow(sc),
+         ratio = n / n_opp)
+
+n_any <- sum(sc$endorses_planning == 1 | sc$endorses_modern == 1 | sc$endorses_autonomy == 1)
+n_any_opp <- sum(sc$opposes_planning == 1 | sc$opposes_modern == 1 |
+                   sc$denies_autonomy == 1)
+
+write_csv(tab %>% select(label, definition, example, n, pct, n_opp, pct_opp, ratio),
+          here("figures", "nairaland_scripts_table.csv"))
+```
+
+## latex version
+
+```{r}
+tex <- c(
+  "\\begin{table}[t]",
+  "\\centering",
+  "\\footnotesize",
+  "\\begin{tabular}{p{2.9cm}p{5.6cm}rrrrr}",
+  "\\toprule",
+  " & & \\multicolumn{2}{c}{\\textbf{Endorsing}} & \\multicolumn{2}{c}{\\textbf{Opposing}} & \\textbf{Ratio} \\\\",
+  "\\cmidrule(lr){3-4}\\cmidrule(lr){5-6}\\cmidrule(lr){7-7}",
+  "\\textbf{Script} & \\textbf{Definition} & \\textit{Posts} & \\textit{\\%} & \\textit{Posts} & \\textit{\\%} & \\textit{endorse/oppose} \\\\",
+  "\\midrule",
+  paste0(sprintf("%s & %s & %s & %.1f & %s & %.1f & %.1f \\\\",
+                 tab$label, tab$definition,
+                 scales::comma(tab$n), tab$pct,
+                 scales::comma(tab$n_opp), tab$pct_opp, tab$ratio),
+         c(rep("\n\\addlinespace", nrow(tab) - 1), "")),
+  "\\midrule",
+  sprintf("Any script & & %s & %.1f & %s & %.1f & %.1f \\\\",
+          scales::comma(n_any), 100 * n_any / nrow(sc),
+          scales::comma(n_any_opp), 100 * n_any_opp / nrow(sc),
+          n_any / n_any_opp),
+  "\\bottomrule",
+  "\\end{tabular}",
+  sprintf(paste0(
+    "\\caption{Fertility scripts in Nairaland family-planning and ",
+    "childbearing threads, 2010--2018. All %s posts in the %d threads active ",
+    "during this period were individually classified on each of the three ",
+    "binary dimensions: \\textit{planned fertility}, \\textit{modern ",
+    "contraception or medical authority}, and \\textit{female reproductive ",
+    "autonomy}. Endorsing posts affirm the script (e.g., ",
+    "announcing a plan to limit or space births, recommending a ",
+    "contraceptive method or clinic, or asserting a woman's right to decide ",
+    "her own childbearing). Opposing posts express a contrary position or ",
+    "directly reject the script (e.g., insisting that births ",
+    "be left to God or nature, condemning modern contraception as sinful or ",
+    "harmful, or assigning reproductive decisions to the husband or family).}"),
+          scales::comma(nrow(sc)), n_distinct(sc$tid)),
+  "\\label{tab:nairaland_scripts}",
+  "\\end{table}")
+
+writeLines(tex, here("figures", "nairaland_scripts_table.tex"))
+```
